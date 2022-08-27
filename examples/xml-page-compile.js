@@ -21,16 +21,24 @@ const mockContext = {
 
 xmlLoader.bind(mockContext)(`
   <Page navigatingTo="onNavigatingTo" xmlns="http://schemas.nativescript.org/tns.xsd">
+
     <ActionBar>
         <Label text="Home" />
     </ActionBar>
 
-    <ListView items="{{ items }}" itemTap="onItemTap" isUserInteractionEnabled="false">
-        <ListView.itemTemplate>
-            <StackLayout orientation="horizontal">
-                <Label text="{{ name }}" textWrap="true" />
-            </StackLayout>
-        </ListView.itemTemplate>
+    <ListView items="{{ items }}" itemTap="onItemTap" itemTemplateSelector="selectItemTemplate">
+        <ListView.itemTemplates>
+            <template key="even">
+                <StackLayout orientation="horizontal">
+                    <Label text="{{ name }}" textWrap="true" />
+                </StackLayout>
+            </template>
+            <template key="odd">
+                <StackLayout orientation="horizontal">
+                    <Label text="{{ name }}" textWrap="true" />
+                </StackLayout>
+            </template>
+        </ListView.itemTemplates>
     </ListView>
   </Page>
 `, null);

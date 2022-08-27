@@ -4,6 +4,8 @@ import { getBindingExpressionFromAttribute, isBinding } from './helpers/binding'
 import { isString } from './helpers/types';
 
 const ELEMENT_PREFIX = 'el';
+const MULTI_TEMPLATE_TAG = 'template';
+const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
 
 // For example, ListView.itemTemplateSelector
 const KNOWN_FUNCTIONS = 'knownFunctions';
@@ -16,7 +18,7 @@ interface ComplexProperty {
   parentIndex: number;
   name: string;
   elementReferences?: Array<string>;
-  parser?: { value: any };
+  templateViewIndex?: number;
 }
 
 export class ComponentParser {
@@ -59,11 +61,22 @@ export class ComponentParser {
 
     const parentIndex: number = this.parentIndices[this.parentIndices.length - 1] ?? -1;
 
-    if (this.isComplexProperty(elementName)) {
+    if (elementName === MULTI_TEMPLATE_TAG) {
+      const complexProperty = this.complexProperties[this.complexProperties.length - 1];
+      if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
+        if (attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE]) {
+          const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].value.replaceAll("'", "\\'");
+          this.body += `{ key: '${attrValue}', createView: () {`;
+        } else {
+          console.warn('Found template without key inside ${complexProperty.name}');
+        }
+      }
+    } else if (this.isComplexProperty(elementName)) {
       const complexProperty: ComplexProperty = {
         parentIndex,
         name: this.getComplexPropertyName(elementName),
         elementReferences: [],
+        templateViewIndex: this.treeIndex
       };
 
       this.complexProperties.push(complexProperty);
@@ -72,34 +85,18 @@ export class ComponentParser {
       
       if (knownTemplates.includes(complexProperty.name)) {
         this.body += `${ELEMENT_PREFIX}${parentIndex}.${complexProperty.name} = () => {`;
+      } else if (knownMultiTemplates.includes(complexProperty.name)) {
+        this.body += `${ELEMENT_PREFIX}${parentIndex}.${complexProperty.name} = [`;
       }
-
-      // TODO: Implement template parsers
-      // if (ComponentParser.isKnownMultiTemplate(name, parent.exports)) {
-      //   const parser = new MultiTemplateParser(this, {
-      //     context: (parent ? getExports(parent.component) : null) || this.context,
-      //     parent: parent,
-      //     name: name,
-      //     elementName: args.elementName,
-      //     templateItems: [],
-      //     errorFormat: this.error,
-      //     sourceTracker: this.sourceTracker,
-      //   });
-      //   complexProperty.parser = parser;
-
-      //   return parser;
-      // }
     } else {
       const complexProperty = this.complexProperties[this.complexProperties.length - 1];
       this.buildComponent(elementName, attributes);
 
-      if (parentIndex >= 0) {
-        if (complexProperty && complexProperty.parentIndex == parentIndex) {
-          // Add component to complex property of parent component
-          this.addToComplexProperty(parentIndex, complexProperty);
-        } else {
-          this.body += `${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder && ${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder('${elementName}', ${ELEMENT_PREFIX}${this.treeIndex});`;
-        }
+      if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
+        // Add component to complex property of parent component
+        this.addToComplexProperty(parentIndex, complexProperty);
+      } else {
+        this.body += `${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder && ${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder('${elementName}', ${ELEMENT_PREFIX}${this.treeIndex});`;
       }
 
       this.parentIndices.push(this.treeIndex);
@@ -121,10 +118,18 @@ export class ComponentParser {
 
     const parentIndex: number = this.parentIndices[this.parentIndices.length - 1] ?? -1;
     const complexProperty = this.complexProperties[this.complexProperties.length - 1];
-    if (this.isComplexProperty(elementName)) {
+
+    if (elementName === MULTI_TEMPLATE_TAG) {
+      if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
+        this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; },` : `return null; },`;
+        complexProperty.templateViewIndex = this.treeIndex;
+      }
+    } else if (this.isComplexProperty(elementName)) {
       if (complexProperty) {
         if (knownTemplates.includes(complexProperty.name)) {
-          this.body += (this.treeIndex - 1) > complexProperty.parentIndex ? `return ${ELEMENT_PREFIX}${complexProperty.parentIndex + 1}; };` : `return null; };`;
+          this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; };` : `return null; };`;
+        } else if (knownMultiTemplates.includes(complexProperty.name)) {
+          this.body += `];`;
         } else if (parentIndex >= 0) {
           // If parent is AddArrayFromBuilder call the interface method to populate the array property
           this.body += `${ELEMENT_PREFIX}${parentIndex}._addArrayFromBuilder && ${ELEMENT_PREFIX}${parentIndex}._addArrayFromBuilder('${complexProperty.name}', [${complexProperty.elementReferences.join(', ')}]);`;
@@ -235,7 +240,7 @@ export class ComponentParser {
     // If property name is known collection we populate array with elements
     if (knownCollections.includes(complexProperty.name)) {
       complexProperty.elementReferences.push(`${ELEMENT_PREFIX}${this.treeIndex}`);
-    } else if (knownTemplates.includes(complexProperty.name)) {
+    } else if (knownTemplates.includes(complexProperty.name) || knownMultiTemplates.includes(complexProperty.name)) {
       // Do nothing
     } else {
       this.body += `if (${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder) {`;
