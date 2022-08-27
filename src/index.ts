@@ -8,7 +8,6 @@ export default function loader(content: string, map: any) {
   let moduleRelativePath = relative(this.rootContext + `/${appPath}`, this.resourcePath);
   moduleRelativePath = `./${moduleRelativePath}`;
 
-  // Parse content and dependencies async
   try {
     const output = parseXMLTree(moduleRelativePath, content, platform);
     callback(null, output, map);
