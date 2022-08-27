@@ -38,9 +38,7 @@ export class ComponentParser {
 
     this.moduleRelativePath = moduleRelativePath.substring(0, moduleRelativePath.length - ext.length);
 
-    this.head += `var uiModules = require('@nativescript/core/ui');`;
-    this.head += `var { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');`;
-    this.head += `var { getBindingOptions, bindingConstants } = require('@nativescript/core/ui/builder/binding-builder');`;
+    this.appendImports();
 
     this.body += `export default class ${componentName} extends `;
 
@@ -160,10 +158,18 @@ export class ComponentParser {
     return this.head + this.body;
   }
 
+  private appendImports() {
+    this.head += `var { Trace } = require('@nativescript/core/trace');`;
+    this.head += `var uiModules = require('@nativescript/core/ui');`;
+    this.head += `var { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');`;
+    this.head += `var { getBindingOptions, bindingConstants } = require('@nativescript/core/ui/builder/binding-builder');`;
+  }
+
   private buildComponent(elementName: string, attributes) {
     if (this.treeIndex == 0) {
       this.body += `uiModules.${elementName} { constructor() { super();`;
-      this.body += `var moduleExports = global.loadModule('${this.moduleRelativePath}', true);`;
+      this.body += `var moduleExports; try { moduleExports = global.loadModule('${this.moduleRelativePath}', true); }`;
+      this.body += `catch(err) { if (Trace.isEnabled()) { Trace.write('Module ${this.moduleRelativePath} has no script file', Trace.categories.Debug); }}`;
       this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = this;`;
     } else {
       this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = new uiModules.${elementName}();`;
