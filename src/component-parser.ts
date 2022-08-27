@@ -156,6 +156,7 @@ export class ComponentParser {
   }
 
   private appendImports() {
+    this.head += `var { resolveModuleName } = require('@nativescript/core/module-name-resolver');`;
     this.head += `var { Trace } = require('@nativescript/core/trace');`;
     this.head += `var uiModules = require('@nativescript/core/ui');`;
     this.head += `var { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');`;
@@ -164,10 +165,17 @@ export class ComponentParser {
 
   private buildComponent(elementName: string, attributes) {
     if (this.treeIndex == 0) {
-      this.body += `uiModules.${elementName} { constructor() { super();`;
-      this.body += `var moduleExports; try { moduleExports = global.loadModule('${this.moduleRelativePath}', true); }`;
+      this.body += `uiModules.${elementName} { constructor() { super(); var ${ELEMENT_PREFIX}${this.treeIndex} = this;`;
+
+      // Script
+      this.body += `var moduleExports; try { var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');`;
+      this.body += `if (resolvedCodeModuleName) {  moduleExports = global.loadModule(resolvedCodeModuleName, true); }}`;
       this.body += `catch(err) { if (Trace.isEnabled()) { Trace.write('Module ${this.moduleRelativePath} has no script file', Trace.categories.Debug); }}`;
-      this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = this;`;
+
+      // Style
+      this.body += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');`;
+      this.body += `if (resolvedCssModuleName) { ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName); }`;
+      this.body += `else { if (Trace.isEnabled()) { Trace.write('Module ${this.moduleRelativePath} has no style file', Trace.categories.Debug); }}`;
     } else {
       this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = new uiModules.${elementName}();`;
     }
