@@ -1,30 +1,26 @@
-import { pascalCase } from 'change-case';
-import { parse } from 'path';
+import { relative } from 'path';
 import { parser } from 'sax';
 import { ComponentParser } from './component-parser';
 
 export default function loader(content: string, map: any) {
-  //const callback = this.async();
-  const callback = Function.prototype;
-  const { platform } = this.getOptions();
-  const resourceName = parse(this.resourcePath).name;
+  const callback = this.async();
+  const { appPath, platform } = this.getOptions();
+  let moduleRelativePath = relative(this.rootContext + `/${appPath}`, this.resourcePath);
+  moduleRelativePath = `./${moduleRelativePath}`;
 
-  // parse content and dependencies async
-  let output;
+  // Parse content and dependencies async
   try {
-    output = parseXMLTree(resourceName, content, platform);
+    const output = parseXMLTree(moduleRelativePath, content, platform);
     callback(null, output, map);
   } catch(err) {
     console.error(err);
     callback(err);
   }
-  return output;
 }
 
-function parseXMLTree(name: string, content: string, platform: string) {
+function parseXMLTree(moduleRelativePath: string, content: string, platform: string) {
   const xmlParser = parser(true, { xmlns: true });
-  const componentName = pascalCase(name);
-  const componentParser = new ComponentParser(componentName, platform);
+  const componentParser = new ComponentParser(moduleRelativePath, platform);
 
   // Register ios and android prefixes as namespaces to avoid "unbound xml namespace" errors
   xmlParser.ns['ios'] = xmlParser.ns['android'] = xmlParser.ns['desktop'] = xmlParser.ns['web'] = 'http://schemas.nativescript.org/tns.xsd';

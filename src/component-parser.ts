@@ -1,3 +1,5 @@
+import { pascalCase } from 'change-case';
+import { parse } from 'path';
 import { getBindingExpressionFromAttribute, isBinding } from './helpers/binding';
 import { isString } from './helpers/types';
 
@@ -5,9 +7,10 @@ const ELEMENT_PREFIX = 'el';
 
 // For example, ListView.itemTemplateSelector
 const KNOWN_FUNCTIONS = 'knownFunctions';
-const knownTemplates: Set<string> = new Set(['itemTemplate']);
-const knownMultiTemplates: Set<string> = new Set(['itemTemplates']);
-const knownCollections: Set<string> = new Set(['items', 'spans', 'actionItems']);
+const knownTemplates: string[] = ['itemTemplate'];
+const knownMultiTemplates: string[] = ['itemTemplates'];
+const knownCollections: string[] = ['items', 'spans', 'actionItems'];
+const knownPlatforms: string[] = ['android', 'ios', 'desktop'];
 
 interface ComplexProperty {
   parentIndex: number;
@@ -20,12 +23,21 @@ export class ComponentParser {
   private parentIndices = new Array<number>();
   private complexProperties = new Array<ComplexProperty>();
 
+  // Keep counter in case of platform tags being inside platform tags
+  private unsupportedPlatformTagCount: number = 0;
+
+  private moduleRelativePath: string = '';
   private head: string = '';
   private body: string = '';
   private platform: string;
   private treeIndex: number = 0;
 
-  constructor(componentName: string, platform: string) {
+  constructor(moduleRelativePath: string, platform: string) {
+    const { ext, name } = parse(moduleRelativePath);
+    const componentName = pascalCase(name);
+
+    this.moduleRelativePath = moduleRelativePath.substring(0, moduleRelativePath.length - ext.length);
+
     this.head += `var uiModules = require('@nativescript/core/ui');`;
     this.head += `var { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');`;
     this.head += `var { getBindingOptions, bindingConstants } = require('@nativescript/core/ui/builder/binding-builder');`;
@@ -36,6 +48,17 @@ export class ComponentParser {
   }
 
   public handleOpenTag(elementName, attributes) {
+    // Platform tags
+    if (knownPlatforms.includes(elementName)) {
+      if (elementName.toLowerCase() !== this.platform) {
+        this.unsupportedPlatformTagCount++;
+      }
+      return;
+    }
+    if (this.unsupportedPlatformTagCount > 0) {
+      return;
+    }
+
     const parentIndex = this.parentIndices[this.parentIndices.length - 1];
 
     if (this.isComplexProperty(elementName)) {
@@ -96,6 +119,17 @@ export class ComponentParser {
   }
 
   public handleCloseTag(elementName) {
+    // Platform tags
+    if (knownPlatforms.includes(elementName)) {
+      if (elementName.toLowerCase() !== this.platform) {
+        this.unsupportedPlatformTagCount--;
+      }
+      return;
+    }
+    if (this.unsupportedPlatformTagCount > 0) {
+      return;
+    }
+
     const parentIndex = this.parentIndices[this.parentIndices.length - 1];
     const complexProperty = this.complexProperties[this.complexProperties.length - 1];
     if (this.isComplexProperty(elementName)) {
@@ -129,6 +163,7 @@ export class ComponentParser {
   private buildComponent(elementName: string, attributes) {
     if (this.treeIndex == 0) {
       this.body += `uiModules.${elementName} { constructor() { super();`;
+      this.body += `var moduleExports = global.loadModule('${this.moduleRelativePath}', true);`;
       this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = this;`;
     } else {
       this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = new uiModules.${elementName}();`;
@@ -159,27 +194,28 @@ export class ComponentParser {
   }
 
   private setPropertyValue(propertyName: string, propertyValue: any) {
+    // Use dot notation as it's a good way to support sub-properties
     if (isBinding(propertyValue)) {
       const expression = getBindingExpressionFromAttribute(propertyValue);
 
-      this.body += `const bindOptions = getBindingOptions('${propertyName}', '${expression}');`
+      this.body += `var ${propertyName}BindOptions = getBindingOptions('${propertyName}', '${expression}');`
       this.body += `if (${ELEMENT_PREFIX}${this.treeIndex}.bind) {`;
-      this.body += `instance.bind({sourceProperty: bindOptions[bindingConstants.sourceProperty], targetProperty: bindOptions[bindingConstants.targetProperty],`;
-      this.body += `expression: bindOptions[bindingConstants.expression], twoWay: bindOptions[bindingConstants.twoWay]}, bindOptions[bindingConstants.source]); }`;
+      this.body += `instance.bind({sourceProperty: ${propertyName}BindOptions[bindingConstants.sourceProperty], targetProperty: ${propertyName}BindOptions[bindingConstants.targetProperty],`;
+      this.body += `expression: ${propertyName}BindOptions[bindingConstants.expression], twoWay: ${propertyName}BindOptions[bindingConstants.twoWay]}, ${propertyName}BindOptions[bindingConstants.source]); }`;
       this.body += `else { ${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = '${propertyValue}'; }`;
     } else {
       // Get the event handler from page module exports
-      this.body += `const handler = moduleExports && moduleExports['${propertyValue}'];`;
+      this.body += `var ${propertyName}Handler = moduleExports && moduleExports['${propertyValue}'];`;
       this.body += `if (isEventOrGesture('${propertyName}', ${ELEMENT_PREFIX}${this.treeIndex})) {`;
       
       // Check if the handler is function and add it to the instance for specified event name
-      this.body += `typeof handler === 'function' && ${ELEMENT_PREFIX}${this.treeIndex}.on('${propertyName}', handler); }`;
+      this.body += `typeof ${propertyName}Handler === 'function' && ${ELEMENT_PREFIX}${this.treeIndex}.on('${propertyName}', ${propertyName}Handler); }`;
 
       // isKnownFunction()
       this.body += `else if (${ELEMENT_PREFIX}${this.treeIndex}?.constructor?.${KNOWN_FUNCTIONS} `;
-      this.body += `&& ${ELEMENT_PREFIX}${this.treeIndex}.constructor.${KNOWN_FUNCTIONS}.indexOf('${propertyName}') !== -1 && typeof handler === 'function') {`;
+      this.body += `&& ${ELEMENT_PREFIX}${this.treeIndex}.constructor.${KNOWN_FUNCTIONS}.indexOf('${propertyName}') !== -1 && typeof ${propertyName}Handler === 'function') {`;
 
-      this.body += `${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = handler; }`;
+      this.body += `${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = ${propertyName}Handler; }`;
       this.body += `else { ${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = '${propertyValue}'; }`;
     }
   }
@@ -201,7 +237,7 @@ export class ComponentParser {
 
   private addToComplexProperty(parentIndex, complexProperty: ComplexProperty) {
     // If property name is known collection we populate array with elements
-    if (knownCollections.has(complexProperty.name)) {
+    if (knownCollections.includes(complexProperty.name)) {
       complexProperty.elementReferences.push(`${ELEMENT_PREFIX}${this.treeIndex}`);
     } else {
       this.body += `if (${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder) {`;
