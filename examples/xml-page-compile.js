@@ -19,29 +19,18 @@ const mockContext = {
   rootContext: '/home/test'
 };
 
-xmlLoader.bind(mockContext)(`<Page class="{{ classNames }}" visibility="visible">
-  <ActionBar>
-    <ActionBar.actionItems>
-      <android>
-        <ActionItem/>
-        <android>
-          <Label/>
-        </android>
-      </android>
-      <ios>
-        <ActionItem/>
-      </ios>
-      <ActionItem title="no platform"/>
-    </ActionBar.actionItems>
-  </ActionBar>
-  <GridLayout>
-    <StackLayout>
-      <TextField/>
-    </StackLayout>
-    <StackLayout>
-      <Label/>
-    </StackLayout>
-    <AbsoluteLayout>
-    </AbsoluteLayout>
-  </GridLayout>
-</Page>`, null);
+xmlLoader.bind(mockContext)(`
+  <Page navigatingTo="onNavigatingTo" xmlns="http://schemas.nativescript.org/tns.xsd">
+    <ActionBar>
+        <Label text="Home" />
+    </ActionBar>
+
+    <ListView items="{{ items }}" itemTap="onItemTap" isUserInteractionEnabled="false">
+        <ListView.itemTemplate>
+            <StackLayout orientation="horizontal">
+                <Label text="{{ name }}" textWrap="true" />
+            </StackLayout>
+        </ListView.itemTemplate>
+    </ListView>
+  </Page>
+`, null);
