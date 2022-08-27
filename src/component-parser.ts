@@ -123,7 +123,7 @@ export class ComponentParser {
 
     if (elementName === MULTI_TEMPLATE_TAG) {
       if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
-        this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; },` : `return null; },`;
+        this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; }},` : `return null; }},`;
         complexProperty.templateViewIndex = this.treeIndex;
       }
     } else if (this.isComplexProperty(elementName)) {
@@ -176,50 +176,62 @@ export class ComponentParser {
   }
 
   private applyComponentAttributes(attributes) {
-    for (let attr in attributes) {
-      const attributeInstance = attributes[attr];
-      if (attributeInstance) {
-        const attrValue = attributeInstance.value.replaceAll("'", "\\'");
+    const attributeData: any[] = Object.values(attributes);
+    for (let i = 0, length = attributeData.length; i < length; i++) {
+      if (attributeData[i]) {
+        const { name, value } = attributeData[i];
+        let attrName = name;
+        const attrValue = value.replaceAll("'", "\\'");
 
-        if (attr.indexOf(':') !== -1) {
-          const platformName = attr.split(':')[0].trim();
+        if (attrName.indexOf(':') !== -1) {
+          const platformName = attrName.split(':')[0].trim();
 
           if (platformName.toLowerCase() === this.platform.toLowerCase()) {
-            attr = attr.split(':')[1].trim();
+            attrName = attrName.split(':')[1].trim();
           } else {
             continue;
           }
         }
 
-        this.setPropertyValue(attr, attrValue);
+        this.setPropertyValue(attrName, attrValue, i);
       }
     }
   }
 
-  private setPropertyValue(propertyName: string, propertyValue: any) {
+  private setPropertyValue(propertyName: string, propertyValue: any, index: number) {
+    const propertyInfo = propertyName.split('.');
+    if (propertyInfo.length > 1) {
+      const safePropertyName = propertyInfo.join('?.');
+      this.body += `if (${ELEMENT_PREFIX}${this.treeIndex}?.${safePropertyName} != null) {`
+    }
+
     // Use dot notation as it's a good way to support sub-properties
     if (isBinding(propertyValue)) {
       const expression = getBindingExpressionFromAttribute(propertyValue);
 
-      this.body += `var ${propertyName}BindOptions = getBindingOptions('${propertyName}', '${expression}');`
+      this.body += `var bindOptions${index} = getBindingOptions('${propertyName}', '${expression}');`
       this.body += `if (${ELEMENT_PREFIX}${this.treeIndex}.bind) {`;
-      this.body += `instance.bind({sourceProperty: ${propertyName}BindOptions[bindingConstants.sourceProperty], targetProperty: ${propertyName}BindOptions[bindingConstants.targetProperty],`;
-      this.body += `expression: ${propertyName}BindOptions[bindingConstants.expression], twoWay: ${propertyName}BindOptions[bindingConstants.twoWay]}, ${propertyName}BindOptions[bindingConstants.source]); }`;
+      this.body += `instance.bind({sourceProperty: bindOptions${index}[bindingConstants.sourceProperty], targetProperty: bindOptions${index}[bindingConstants.targetProperty],`;
+      this.body += `expression: bindOptions${index}[bindingConstants.expression], twoWay: bindOptions${index}[bindingConstants.twoWay]}, bindOptions${index}[bindingConstants.source]); }`;
       this.body += `else { ${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = '${propertyValue}'; }`;
     } else {
       // Get the event handler from page module exports
-      this.body += `var ${propertyName}Handler = moduleExports && moduleExports['${propertyValue}'];`;
+      this.body += `var handler${index} = moduleExports && moduleExports['${propertyValue}'];`;
       this.body += `if (isEventOrGesture('${propertyName}', ${ELEMENT_PREFIX}${this.treeIndex})) {`;
       
       // Check if the handler is function and add it to the instance for specified event name
-      this.body += `typeof ${propertyName}Handler === 'function' && ${ELEMENT_PREFIX}${this.treeIndex}.on('${propertyName}', ${propertyName}Handler); }`;
+      this.body += `typeof handler${index} === 'function' && ${ELEMENT_PREFIX}${this.treeIndex}.on('${propertyName}', handler${index}); }`;
 
       // isKnownFunction()
       this.body += `else if (${ELEMENT_PREFIX}${this.treeIndex}?.constructor?.${KNOWN_FUNCTIONS} `;
-      this.body += `&& ${ELEMENT_PREFIX}${this.treeIndex}.constructor.${KNOWN_FUNCTIONS}.indexOf('${propertyName}') !== -1 && typeof ${propertyName}Handler === 'function') {`;
+      this.body += `&& ${ELEMENT_PREFIX}${this.treeIndex}.constructor.${KNOWN_FUNCTIONS}.indexOf('${propertyName}') !== -1 && typeof handler${index} === 'function') {`;
 
-      this.body += `${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = ${propertyName}Handler; }`;
+      this.body += `${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = handler${index}; }`;
       this.body += `else { ${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = '${propertyValue}'; }`;
+    }
+
+    if (propertyInfo.length > 1) {
+      this.body += `}`;
     }
   }
 
