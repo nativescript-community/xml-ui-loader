@@ -211,7 +211,7 @@ export class ComponentParser {
 
       this.body += `var bindOptions${index} = getBindingOptions('${propertyName}', '${expression}');`
       this.body += `if (${ELEMENT_PREFIX}${this.treeIndex}.bind) {`;
-      this.body += `instance.bind({sourceProperty: bindOptions${index}[bindingConstants.sourceProperty], targetProperty: bindOptions${index}[bindingConstants.targetProperty],`;
+      this.body += `${ELEMENT_PREFIX}${this.treeIndex}.bind({sourceProperty: bindOptions${index}[bindingConstants.sourceProperty], targetProperty: bindOptions${index}[bindingConstants.targetProperty],`;
       this.body += `expression: bindOptions${index}[bindingConstants.expression], twoWay: bindOptions${index}[bindingConstants.twoWay]}, bindOptions${index}[bindingConstants.source]); }`;
       this.body += `else { ${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = '${propertyValue}'; }`;
     } else {
