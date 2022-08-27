@@ -92,11 +92,13 @@ export class ComponentParser {
       const complexProperty = this.complexProperties[this.complexProperties.length - 1];
       this.buildComponent(elementName, attributes);
 
-      if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
-        // Add component to complex property of parent component
-        this.addToComplexProperty(parentIndex, complexProperty);
-      } else {
-        this.body += `${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder && ${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder('${elementName}', ${ELEMENT_PREFIX}${this.treeIndex});`;
+      if (parentIndex >= 0) {
+        if (complexProperty && complexProperty.parentIndex == parentIndex) {
+          // Add component to complex property of parent component
+          this.addToComplexProperty(parentIndex, complexProperty);
+        } else {
+          this.body += `${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder && ${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder('${elementName}', ${ELEMENT_PREFIX}${this.treeIndex});`;
+        }
       }
 
       this.parentIndices.push(this.treeIndex);

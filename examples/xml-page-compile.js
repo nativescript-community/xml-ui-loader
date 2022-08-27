@@ -20,25 +20,18 @@ const mockContext = {
 };
 
 xmlLoader.bind(mockContext)(`
-  <Page navigatingTo="onNavigatingTo" xmlns="http://schemas.nativescript.org/tns.xsd">
+  <TabView androidTabsPosition="bottom" isUserInteractionEnabled="false">
+    <TabViewItem title="Home" >
+        <Frame defaultPage="home/home-items-page" />
+    </TabViewItem>
 
-    <ActionBar>
-        <Label text="Home" />
-    </ActionBar>
+    <TabViewItem title="Browse" >
+        <Frame defaultPage="browse/browse-page" />
+    </TabViewItem>
 
-    <ListView items="{{ items }}" itemTap="onItemTap" itemTemplateSelector="selectItemTemplate">
-        <ListView.itemTemplates>
-            <template key="even">
-                <StackLayout orientation="horizontal">
-                    <Label text="{{ name }}" textWrap="true" />
-                </StackLayout>
-            </template>
-            <template key="odd">
-                <StackLayout orientation="horizontal">
-                    <Label text="{{ name && name }}" textWrap="true" />
-                </StackLayout>
-            </template>
-        </ListView.itemTemplates>
-    </ListView>
-  </Page>
+    <TabViewItem title="Search" >
+        <Frame defaultPage="search/search-page" />
+    </TabViewItem>
+</TabView>
+
 `, null);
