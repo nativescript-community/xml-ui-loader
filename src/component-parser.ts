@@ -23,7 +23,7 @@ export class ComponentParser {
   private parentIndices = new Array<number>();
   private complexProperties = new Array<ComplexProperty>();
 
-  // Keep counter in case of platform tags being inside platform tags
+  // Keep counter for the case of platform tags being inside platform tags
   private unsupportedPlatformTagCount: number = 0;
 
   private moduleRelativePath: string = '';
