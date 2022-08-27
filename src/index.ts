@@ -24,29 +24,18 @@ function parseXMLTree(moduleRelativePath: string, content: string, platform: str
 
   // Register ios and android prefixes as namespaces to avoid "unbound xml namespace" errors
   xmlParser.ns['ios'] = xmlParser.ns['android'] = xmlParser.ns['desktop'] = xmlParser.ns['web'] = 'http://schemas.nativescript.org/tns.xsd';
- 
-  xmlParser.onerror = function (e) {
-    // an error happened.
-  };
-
-  xmlParser.ontext = function (t) {
-    // got some text.  t is the string of text.
-  };
 
   xmlParser.onopentag = (node) => {
     componentParser.handleOpenTag(node.name, node.attributes);
   };
-
   xmlParser.onclosetag = (elementName) => {
     componentParser.handleCloseTag(elementName);
   };
-
-  xmlParser.onattribute = function (attr) {
-    // an attribute.  attr has "name" and "value"
-  };
-
-  xmlParser.onend = function () {
-    // parser stream is done, and ready to have more stuff written to it.
+  xmlParser.onerror = (err) => {
+    // Allow using ampersand
+    if (err.message.includes('Invalid character') && err.message.includes('Char: &')) {
+      xmlParser.error = null;
+    }
   };
    
   xmlParser.write(content).close();

@@ -35,7 +35,7 @@ xmlLoader.bind(mockContext)(`
             </template>
             <template key="odd">
                 <StackLayout orientation="horizontal">
-                    <Label text="{{ name }}" textWrap="true" />
+                    <Label text="{{ name && name }}" textWrap="true" />
                 </StackLayout>
             </template>
         </ListView.itemTemplates>
