@@ -66,7 +66,7 @@ export class ComponentParser {
       if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
         if (attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE]) {
           const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].value.replaceAll("'", "\\'");
-          this.body += `{ key: '${attrValue}', createView: () {`;
+          this.body += `{ key: '${attrValue}', createView: () => {`;
         } else {
           console.warn('Found template without key inside ${complexProperty.name}');
         }
