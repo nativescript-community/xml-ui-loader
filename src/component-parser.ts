@@ -201,6 +201,10 @@ export class ComponentParser {
       // Script
       this.body += `var moduleExports;
       var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');
+      if (!resolvedCodeModuleName && this.__fallbackModuleRelativePath) {
+        resolvedCodeModuleName = resolveModuleName(this.__fallbackModuleRelativePath, '');
+      }
+
       if (resolvedCodeModuleName) {
         try {
           moduleExports = global.loadModule(resolvedCodeModuleName, true);
@@ -249,22 +253,26 @@ export class ComponentParser {
   private generateHelperFunctions() {
     // Declare functions here until core package has support for them
     this.body += `function newInstance(elementName, prefix) {
-      var instance;
+      var componentModule;
       if (!prefix) {
-        instance = new uiCoreModules[elementName]();
+        componentModule = uiCoreModules[elementName];
       } else {
         if (prefix in customModules) {
           if (elementName in customModules[prefix]) {
-            instance = new customModules[prefix][elementName]();
+            componentModule = customModules[prefix][elementName];
           } else if (elementName === customModules[prefix].name) {
-            instance = new customModules[prefix]();
+            componentModule = customModules[prefix];
           } else {
             throw new Error('Component ' + elementName + ' cannot be found in ' + prefix + ' module');
           }
+          componentModule.prototype.__fallbackModuleRelativePath = '${this.moduleRelativePath}';
         } else {
           throw new Error('Cannot resolve module ' + prefix + ' for component ' + elementName);
         }
       }
+
+      var instance = new componentModule();
+      delete componentModule.prototype.__fallbackModuleRelativePath;
       return instance;
     }
 
