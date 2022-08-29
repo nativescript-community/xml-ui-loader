@@ -285,7 +285,7 @@ export class ComponentParser {
       }
 
       if (componentModule != null) {
-        customModules[prefix] = componentModule;
+        customModules[prefix] = componentModule.default ?? componentModule;
       }
     }
 
