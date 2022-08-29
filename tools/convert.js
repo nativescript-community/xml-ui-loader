@@ -22,12 +22,11 @@ const mockContext = {
   },
   getOptions() {
     return {
-      appPath: 'app',
+      appPath: '/home/test/app',
       platform: 'ios'
     };
   },
-  resourcePath: '/home/test/app/views/home/home.xml',
-  rootContext: '/home/test'
+  resourcePath: '/home/test/app/views/home/home.xml'
 };
 
 xmlLoader.bind(mockContext)(process.argv[2], null);
