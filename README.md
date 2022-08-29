@@ -63,8 +63,8 @@ module.exports = (env) => {
     config.module
       .rule('xml')
       .test(/\.xml$/i)
-      .use('@nativescript/xml-ui-loader')
-      .loader('@nativescript/xml-ui-loader')
+      .use('@nativescript-community/xml-ui-loader')
+      .loader('@nativescript-community/xml-ui-loader')
       .options({
         appPath: getEntryDirPath(),
         platform: getPlatformName()
