@@ -7,7 +7,7 @@
 
 This is a [webpack](https://webpack.js.org) loader for [NativeScript](https://nativescript.org).  
 
-By default, NativeScript Core uses a builder to compile components in runtime every time application navigates to them.  
+By default, NativeScript Core uses a builder to compile XML components at runtime and eventually render them as views.  
 This new approach is meant to work as an ahead-of-time (AOT) compiler that turns XML content into JavaScript during the build phase.  
 It's meant to improve performance and allow developers to use XML files as modules.
 
