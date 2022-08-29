@@ -46,7 +46,7 @@ module.exports = (env) => {
     config.module.rules.delete('hmr-core');
     config.module.rules.delete('xml');
 
-    // set up core HMR
+    // Set up core HMR anew to support xml extension (add ts extension for TypeScript apps)
     config.module
       .rule('hmr-core')
       .before('js')
