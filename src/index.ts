@@ -5,7 +5,7 @@ import { ComponentParser } from './component-parser';
 export default function loader(content: string, map: any) {
   const callback = this.async();
   const { appPath, platform } = this.getOptions();
-  let moduleRelativePath = relative(this.rootContext + `/${appPath}`, this.resourcePath);
+  let moduleRelativePath = relative(appPath, this.resourcePath);
   moduleRelativePath = `./${moduleRelativePath}`;
 
   try {
