@@ -1,5 +1,4 @@
 module.exports = {
-  'parser': '@typescript-eslint/parser',
   'parserOptions': {
     'ecmaVersion': 2020,
     'ecmaFeatures': {
@@ -42,6 +41,11 @@ module.exports = {
   },
   {
     'files': ['*.ts', '*.tsx'],
+    'parser': '@typescript-eslint/parser',
+    'extends': [
+      'plugin:@typescript-eslint/eslint-recommended',
+      'plugin:@typescript-eslint/recommended'
+    ],
     'rules': {
       '@typescript-eslint/interface-name-prefix': 'off',
       '@typescript-eslint/member-delimiter-style': 'error',
@@ -63,8 +67,6 @@ module.exports = {
     }
   }],
   'extends': [
-    'eslint:recommended',
-    'plugin:@typescript-eslint/eslint-recommended',
-    'plugin:@typescript-eslint/recommended'
+    'eslint:recommended'
   ]
 };
