@@ -1,6 +1,5 @@
 import { pascalCase } from 'change-case';
 import { parse } from 'path';
-import { getBindingExpressionFromAttribute, isBinding } from './helpers/binding';
 import { isString } from './helpers/types';
 
 const ELEMENT_PREFIX = 'el';
@@ -42,12 +41,16 @@ export class ComponentParser {
 
     this.appendImports();
 
-    this.body += `export default class ${componentName} extends `;
+    this.body += `export default class ${componentName} {
+      constructor() {`;
+
+    // Generate functions in constructor scope so that they are not accessible from outside
+    this.generateHelperFunctions();
 
     this.platform = platform;
   }
 
-  public handleOpenTag(elementName, attributes) {
+  public handleOpenTag(elementName: string, prefix: string, attributes) {
     // Platform tags
     if (knownPlatforms.includes(elementName)) {
       if (elementName.toLowerCase() !== this.platform) {
@@ -65,9 +68,11 @@ export class ComponentParser {
       const complexProperty = this.complexProperties[this.complexProperties.length - 1];
       if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
         if (attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE]) {
-          const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].value.replaceAll("'", "\\'");
+          // This is necessary for proper string escape
+          const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].value.replaceAll('\'', '\\\'');
           this.body += `{ key: '${attrValue}', createView: () => {`;
         } else {
+          // eslint-disable-next-line no-console
           console.warn('Found template without key inside ${complexProperty.name}');
         }
       }
@@ -90,7 +95,9 @@ export class ComponentParser {
       }
     } else {
       const complexProperty = this.complexProperties[this.complexProperties.length - 1];
-      this.buildComponent(elementName, attributes);
+
+      this.checkForNamespaces(attributes);
+      this.buildComponent(elementName, prefix, attributes);
 
       if (parentIndex >= 0) {
         if (complexProperty && complexProperty.parentIndex == parentIndex) {
@@ -106,7 +113,7 @@ export class ComponentParser {
     }
   }
 
-  public handleCloseTag(elementName) {
+  public handleCloseTag(elementName: string) {
     // Platform tags
     if (knownPlatforms.includes(elementName)) {
       if (elementName.toLowerCase() !== this.platform) {
@@ -123,15 +130,15 @@ export class ComponentParser {
 
     if (elementName === MULTI_TEMPLATE_TAG) {
       if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
-        this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; }},` : `return null; }},`;
+        this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; }},` : 'return null; }},';
         complexProperty.templateViewIndex = this.treeIndex;
       }
     } else if (this.isComplexProperty(elementName)) {
       if (complexProperty) {
         if (knownTemplates.includes(complexProperty.name)) {
-          this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; };` : `return null; };`;
+          this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; };` : 'return null; };';
         } else if (knownMultiTemplates.includes(complexProperty.name)) {
-          this.body += `];`;
+          this.body += '];';
         } else if (parentIndex >= 0) {
           // If parent is AddArrayFromBuilder call the interface method to populate the array property
           this.body += `${ELEMENT_PREFIX}${parentIndex}._addArrayFromBuilder && ${ELEMENT_PREFIX}${parentIndex}._addArrayFromBuilder('${complexProperty.name}', [${complexProperty.elementReferences.join(', ')}]);`;
@@ -148,7 +155,9 @@ export class ComponentParser {
   }
 
   public finish() {
-    this.body += '}}';
+    this.body += `return ${ELEMENT_PREFIX}0;
+      }
+    }`;
   }
 
   public getOutput(): string {
@@ -156,90 +165,204 @@ export class ComponentParser {
   }
 
   private appendImports() {
-    this.head += `var { resolveModuleName } = require('@nativescript/core/module-name-resolver');`;
-    this.head += `var { Trace } = require('@nativescript/core/trace');`;
-    this.head += `var uiModules = require('@nativescript/core/ui');`;
-    this.head += `var { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');`;
-    this.head += `var { getBindingOptions, bindingConstants } = require('@nativescript/core/ui/builder/binding-builder');`;
-  }
-
-  private buildComponent(elementName: string, attributes) {
-    if (this.treeIndex == 0) {
-      this.body += `uiModules.${elementName} { constructor() { super(); var ${ELEMENT_PREFIX}${this.treeIndex} = this;`;
-
-      // Script
-      this.body += `var moduleExports; try { var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');`;
-      this.body += `if (resolvedCodeModuleName) {  moduleExports = global.loadModule(resolvedCodeModuleName, true); }}`;
-      this.body += `catch(err) { if (Trace.isEnabled()) { Trace.write('Module ${this.moduleRelativePath} has no script file', Trace.categories.Debug); }}`;
-
-      // Style
-      this.body += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');`;
-      this.body += `if (resolvedCssModuleName) { ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName); }`;
-      this.body += `else { if (Trace.isEnabled()) { Trace.write('Module ${this.moduleRelativePath} has no style file', Trace.categories.Debug); }}`;
-    } else {
-      this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = new uiModules.${elementName}();`;
-    }
-
-    this.applyComponentAttributes(attributes);
+    this.head += `var { resolveModuleName } = require('@nativescript/core/module-name-resolver');
+    var { Trace } = require('@nativescript/core/trace');
+    var uiCoreModules = require('@nativescript/core/ui');
+    var { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');
+    var { getBindingOptions, bindingConstants } = require('@nativescript/core/ui/builder/binding-builder');
+    var customModules = {};
+    `;
   }
 
   private applyComponentAttributes(attributes) {
     const attributeData: any[] = Object.values(attributes);
-    for (let i = 0, length = attributeData.length; i < length; i++) {
-      if (attributeData[i]) {
-        const { name, value } = attributeData[i];
-        let attrName = name;
-        const attrValue = value.replaceAll("'", "\\'");
+    for (const { local, prefix, value } of attributeData) {
+      // Namespaces are not regarded as properties
+      if (prefix === 'xmlns') {
+        continue;
+      }
 
-        if (attrName.indexOf(':') !== -1) {
-          const platformName = attrName.split(':')[0].trim();
+      // Platform-based attributes
+      if (knownPlatforms.includes(prefix.toLowerCase()) && prefix.toLowerCase() !== this.platform.toLowerCase()) {
+        continue;
+      }
 
-          if (platformName.toLowerCase() === this.platform.toLowerCase()) {
-            attrName = attrName.split(':')[1].trim();
-          } else {
-            continue;
+      // This is necessary for proper string escape
+      const attrValue = value.replaceAll('\'', '\\\'');
+
+      this.body += `setPropertyValue(${ELEMENT_PREFIX}${this.treeIndex}, '${local}', '${attrValue}');`;
+    }
+  }
+
+  private buildComponent(elementName: string, prefix: string, attributes) {
+    this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = newInstance('${elementName}', '${prefix}');`;
+
+    if (this.treeIndex == 0) {
+      // Script
+      this.body += `var moduleExports;
+      var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');
+      if (resolvedCodeModuleName) {
+        try {
+          moduleExports = global.loadModule(resolvedCodeModuleName, true);
+        } catch(err) {
+          if (Trace.isEnabled()) {
+            Trace.write('Failed to load script file for module ${this.moduleRelativePath}', Trace.categories.Error);
           }
         }
+      } else {
+        if (Trace.isEnabled()) {
+          Trace.write('Module ${this.moduleRelativePath} has no script file', Trace.categories.Debug);
+        }
+      }`;
 
-        this.setPropertyValue(attrName, attrValue, i);
+      // Style
+      this.body += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');
+      if (resolvedCssModuleName) {
+        ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);
+      } else {
+        if (Trace.isEnabled()) {
+          Trace.write('Module ${this.moduleRelativePath} has no style file', Trace.categories.Debug);
+        }
+      }`;
+    }
+    this.applyComponentAttributes(attributes);
+  }
+
+  private checkForNamespaces(attributes) {
+    const attributeData: any[] = Object.values(attributes);
+
+    /**
+     * There are 3 component scenarios
+     * 1. XML
+     * 2. XML + Script with event logic
+     * 3. Script
+     * In order to load the right file in case 2, we always check for XML first
+     * If no XML is found, proceed to loading script file
+     */
+    for (const { local, prefix, value } of attributeData) {
+      if (local && prefix === 'xmlns') {
+        this.body += `loadCustomModule('${local}', '${value}');`;
       }
     }
   }
 
-  private setPropertyValue(propertyName: string, propertyValue: any, index: number) {
-    const propertyInfo = propertyName.split('.');
-    if (propertyInfo.length > 1) {
-      const safePropertyName = propertyInfo.join('?.');
-      this.body += `if (${ELEMENT_PREFIX}${this.treeIndex}?.${safePropertyName} != null) {`
+  private generateHelperFunctions() {
+    // Declare functions here until core package has support for them
+    this.body += `function newInstance(elementName, prefix) {
+      var instance;
+      if (!prefix) {
+        instance = new uiCoreModules[elementName]();
+      } else {
+        if (prefix in customModules) {
+          if (elementName in customModules[prefix]) {
+            instance = new customModules[prefix][elementName]();
+          } else if (elementName === customModules[prefix].name) {
+            instance = new customModules[prefix]();
+          } else {
+            throw new Error('Component ' + elementName + ' cannot be found in ' + prefix + ' module');
+          }
+        } else {
+          throw new Error('Cannot resolve module ' + prefix + ' for component ' + elementName);
+        }
+      }
+      return instance;
     }
 
-    // Use dot notation as it's a good way to support sub-properties
-    if (isBinding(propertyValue)) {
-      const expression = getBindingExpressionFromAttribute(propertyValue);
+    function loadCustomModule(prefix, uri) {
+      var componentModule;
+      var resolvedModuleName = resolveModuleName(uri, 'xml');
+      try {
+        componentModule = resolvedModuleName ? global.loadModule(resolvedModuleName, true) : null;
+      } catch(err) {
+        if (Trace.isEnabled()) {
+          Trace.write('Module ' + uri + ' is not an xml file', Trace.categories.Debug);
+        }
+      }
 
-      this.body += `var bindOptions${index} = getBindingOptions('${propertyName}', '${expression}');`
-      this.body += `if (${ELEMENT_PREFIX}${this.treeIndex}.bind) {`;
-      this.body += `${ELEMENT_PREFIX}${this.treeIndex}.bind({sourceProperty: bindOptions${index}[bindingConstants.sourceProperty], targetProperty: bindOptions${index}[bindingConstants.targetProperty],`;
-      this.body += `expression: bindOptions${index}[bindingConstants.expression], twoWay: bindOptions${index}[bindingConstants.twoWay]}, bindOptions${index}[bindingConstants.source]); }`;
-      this.body += `else { ${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = '${propertyValue}'; }`;
+      resolvedModuleName = resolveModuleName(uri, '');
+      if (componentModule == null) {
+        componentModule = resolvedModuleName ? global.loadModule(resolvedModuleName, true) : null;
+      }
+
+      if (componentModule != null) {
+        customModules[prefix] = componentModule;
+      }
+    }
+
+    function isBinding(value) {
+      var isBinding;
+
+      if (typeof value === 'string') {
+        const str = value.trim();
+        isBinding = str.indexOf('{{') === 0 && str.lastIndexOf('}}') === str.length - 2;
+      }
+
+      return isBinding;
+    }
+
+    function getBindingExpressionFromAttribute(value) {
+      return value.replace('{{', '').replace('}}', '').trim();
+    }
+
+    function isKnownFunction(name, instance) {
+      return instance.constructor && '${KNOWN_FUNCTIONS}' in instance.constructor && instance.constructor['${KNOWN_FUNCTIONS}'].indexOf(name) !== -1;
+    }
+
+    function setPropertyValue(instance, propertyName, propertyValue) {
+      if (propertyName.indexOf('.') !== -1) {
+        let subObj = instance;
+        const properties = propertyName.split('.');
+        const subPropName = properties[properties.length - 1];
+
+        for (let i = 0, length = properties.length - 1; i < length; i++) {
+          if (subObj != null) {
+            subObj = subObj[properties[i]];
+          }
+        }
+
+        if (subObj == null) {
+          return;
+        }
+
+        instance = subObj;
+      }
+
+      if (isBinding(propertyValue) && instance.bind) {
+        let bindOptions = getBindingOptions(propertyName, getBindingExpressionFromAttribute(propertyValue));
+        instance.bind({
+          sourceProperty: bindOptions[bindingConstants.sourceProperty],
+          targetProperty: bindOptions[bindingConstants.targetProperty],
+          expression: bindOptions[bindingConstants.expression],
+          twoWay: bindOptions[bindingConstants.twoWay],
+        },
+        bindOptions[bindingConstants.source]
+        );
+      } else {
+        let handler = moduleExports && moduleExports[propertyValue];
+        if (isEventOrGesture(propertyName, instance)) {
+          typeof handler === 'function' && instance.on(propertyName, handler);
+        } else if (isKnownFunction(propertyName, instance) && typeof handler === 'function') {
+          instance[propertyName] = handler;
+        } else {
+          instance[propertyName] = propertyValue;
+        }
+      }
+    }`;
+  }
+
+  private addToComplexProperty(parentIndex, complexProperty: ComplexProperty) {
+    // If property name is known collection we populate array with elements
+    if (knownCollections.includes(complexProperty.name)) {
+      complexProperty.elementReferences.push(`${ELEMENT_PREFIX}${this.treeIndex}`);
+    } else if (knownTemplates.includes(complexProperty.name) || knownMultiTemplates.includes(complexProperty.name)) {
+      // Do nothing
     } else {
-      // Get the event handler from page module exports
-      this.body += `var handler${index} = moduleExports && moduleExports['${propertyValue}'];`;
-      this.body += `if (isEventOrGesture('${propertyName}', ${ELEMENT_PREFIX}${this.treeIndex})) {`;
-      
-      // Check if the handler is function and add it to the instance for specified event name
-      this.body += `typeof handler${index} === 'function' && ${ELEMENT_PREFIX}${this.treeIndex}.on('${propertyName}', handler${index}); }`;
-
-      // isKnownFunction()
-      this.body += `else if (${ELEMENT_PREFIX}${this.treeIndex}?.constructor?.${KNOWN_FUNCTIONS} `;
-      this.body += `&& ${ELEMENT_PREFIX}${this.treeIndex}.constructor.${KNOWN_FUNCTIONS}.indexOf('${propertyName}') !== -1 && typeof handler${index} === 'function') {`;
-
-      this.body += `${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = handler${index}; }`;
-      this.body += `else { ${ELEMENT_PREFIX}${this.treeIndex}.${propertyName} = '${propertyValue}'; }`;
-    }
-
-    if (propertyInfo.length > 1) {
-      this.body += `}`;
+      // Add child parent else simply assign it as a value
+      this.body += `if (${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder) {
+        ${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder('${complexProperty.name}', ${ELEMENT_PREFIX}${this.treeIndex});
+      } else {
+        ${ELEMENT_PREFIX}${parentIndex}['${complexProperty.name}'] = ${ELEMENT_PREFIX}${this.treeIndex};
+      }`;
     }
   }
 
@@ -256,19 +379,5 @@ export class ComponentParser {
 
   private isComplexProperty(name: string): boolean {
     return isString(name) && name.indexOf('.') !== -1;
-  }
-
-  private addToComplexProperty(parentIndex, complexProperty: ComplexProperty) {
-    // If property name is known collection we populate array with elements
-    if (knownCollections.includes(complexProperty.name)) {
-      complexProperty.elementReferences.push(`${ELEMENT_PREFIX}${this.treeIndex}`);
-    } else if (knownTemplates.includes(complexProperty.name) || knownMultiTemplates.includes(complexProperty.name)) {
-      // Do nothing
-    } else {
-      this.body += `if (${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder) {`;
-      this.body += `${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder('${complexProperty.name}', ${ELEMENT_PREFIX}${this.treeIndex}); }`;
-      // Or simply assign the value
-      this.body += `else { ${ELEMENT_PREFIX}${parentIndex}['${complexProperty.name}'] = ${ELEMENT_PREFIX}${this.treeIndex}; }`;
-    }
   }
 }

@@ -1,4 +1,5 @@
 module.exports = {
+  'parser': '@typescript-eslint/parser',
   'parserOptions': {
     'ecmaVersion': 2020,
     'ecmaFeatures': {
@@ -31,13 +32,39 @@ module.exports = {
         'args': 'none'
       }
     ],
-    'no-prototype-builtins': 0
+    'no-prototype-builtins': 0,
   },
   overrides: [{
-    files: '*',
-    rules: {
+    'files': '*',
+    'rules': {
       'quotes': [2, 'single']
     }
-  }, ],
-  'extends': 'eslint:recommended'
+  },
+  {
+    'files': ['*.ts', '*.tsx'],
+    'rules': {
+      '@typescript-eslint/interface-name-prefix': 'off',
+      '@typescript-eslint/member-delimiter-style': 'error',
+      '@typescript-eslint/member-ordering': 'off',
+      '@typescript-eslint/no-empty-function': 'off',
+      '@typescript-eslint/no-empty-interface': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/no-inferrable-types': 'off',
+      '@typescript-eslint/no-misused-new': 'off',
+      '@typescript-eslint/no-namespace': 'off',
+      '@typescript-eslint/no-parameter-properties': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/no-use-before-declare': 'off',
+      '@typescript-eslint/no-var-requires': 'off',
+      '@typescript-eslint/prefer-for-of': 'off',
+      '@typescript-eslint/prefer-function-type': 'error',
+      '@typescript-eslint/prefer-namespace-keyword': 'error'
+    }
+  }],
+  'extends': [
+    'eslint:recommended',
+    'plugin:@typescript-eslint/eslint-recommended',
+    'plugin:@typescript-eslint/recommended'
+  ]
 };

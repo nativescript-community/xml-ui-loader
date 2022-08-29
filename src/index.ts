@@ -12,7 +12,6 @@ export default function loader(content: string, map: any) {
     const output = parseXMLTree(moduleRelativePath, content, platform);
     callback(null, output, map);
   } catch(err) {
-    console.error(err);
     callback(err);
   }
 }
@@ -25,7 +24,7 @@ function parseXMLTree(moduleRelativePath: string, content: string, platform: str
   xmlParser.ns['ios'] = xmlParser.ns['android'] = xmlParser.ns['desktop'] = xmlParser.ns['web'] = 'http://schemas.nativescript.org/tns.xsd';
 
   xmlParser.onopentag = (node) => {
-    componentParser.handleOpenTag(node.name, node.attributes);
+    componentParser.handleOpenTag(node.local, node.prefix, node.attributes);
   };
   xmlParser.onclosetag = (elementName) => {
     componentParser.handleCloseTag(elementName);
