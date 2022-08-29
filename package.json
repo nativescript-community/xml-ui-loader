@@ -1,6 +1,6 @@
 {
-  "name": "@nativescript/xml-ui-loader",
-  "version": "0.0.1",
+  "name": "@nativescript-community/xml-ui-loader",
+  "version": "1.0.0",
   "description": "",
   "main": "dist/index.js",
   "files": [
@@ -15,14 +15,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CatchABus/xml-ui-loader.git"
+    "url": "git+https://github.com/nativescript-community/xml-ui-loader.git"
   },
   "author": "CatchABus",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/CatchABus/xml-ui-loader/issues"
+    "url": "https://github.com/nativescript-community/xml-ui-loader/issues"
   },
-  "homepage": "https://github.com/CatchABus/xml-ui-loader#readme",
+  "homepage": "https://github.com/nativescript-community/xml-ui-loader#readme",
   "dependencies": {
     "change-case": "^4.1.2",
     "sax": "^1.2.4"
