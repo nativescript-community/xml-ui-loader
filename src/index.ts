@@ -1,3 +1,4 @@
+import { js as beautify } from 'js-beautify';
 import { relative } from 'path';
 import { parser } from 'sax';
 import { ComponentParser } from './component-parser';
@@ -38,5 +39,8 @@ function parseXMLTree(moduleRelativePath: string, content: string, platform: str
    
   xmlParser.write(content).close();
   componentParser.finish();
-  return componentParser.getOutput();
+
+  return beautify(componentParser.getOutput(), {
+    indent_size: 2
+  });
 }
