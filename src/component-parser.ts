@@ -8,8 +8,8 @@ const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
 
 // For example, ListView.itemTemplateSelector
 const KNOWN_FUNCTIONS = 'knownFunctions';
-const knownTemplates: string[] = ['itemTemplate'];
-const knownMultiTemplates: string[] = ['itemTemplates'];
+const KNOWN_TEMPLATE_SUFFIX = 'Template';
+const KNOWN_MULTI_TEMPLATE_SUFFIX = 'Templates';
 const knownCollections: string[] = ['items', 'spans', 'actionItems'];
 const knownPlatforms: string[] = ['android', 'ios', 'desktop'];
 
@@ -88,9 +88,9 @@ export class ComponentParser {
 
       this.body += `/* ${elementName} - start */`;
       
-      if (knownTemplates.includes(complexProperty.name)) {
+      if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
         this.body += `${ELEMENT_PREFIX}${parentIndex}.${complexProperty.name} = () => {`;
-      } else if (knownMultiTemplates.includes(complexProperty.name)) {
+      } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
         this.body += `${ELEMENT_PREFIX}${parentIndex}.${complexProperty.name} = [`;
       }
     } else {
@@ -135,9 +135,9 @@ export class ComponentParser {
       }
     } else if (this.isComplexProperty(elementName)) {
       if (complexProperty) {
-        if (knownTemplates.includes(complexProperty.name)) {
+        if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
           this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; };` : 'return null; };';
-        } else if (knownMultiTemplates.includes(complexProperty.name)) {
+        } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
           this.body += '];';
         } else if (parentIndex >= 0) {
           // If parent is AddArrayFromBuilder call the interface method to populate the array property
@@ -362,7 +362,7 @@ export class ComponentParser {
     // If property name is known collection we populate array with elements
     if (knownCollections.includes(complexProperty.name)) {
       complexProperty.elementReferences.push(`${ELEMENT_PREFIX}${this.treeIndex}`);
-    } else if (knownTemplates.includes(complexProperty.name) || knownMultiTemplates.includes(complexProperty.name)) {
+    } else if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX) || complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
       // Do nothing
     } else {
       // Add child parent else simply assign it as a value
