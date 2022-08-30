@@ -245,6 +245,7 @@ export class ComponentParser {
      */
     for (const { local, prefix, value } of attributeData) {
       if (local && prefix === 'xmlns') {
+        this.head += `global.registerModule('${value}', () => require('${value}'));`;
         this.body += `loadCustomModule('${local}', '${value}');`;
       }
     }
@@ -280,9 +281,6 @@ export class ComponentParser {
       var resolvedModuleName = resolveModuleName(uri, 'xml');
       if (!resolvedModuleName) {
         resolvedModuleName = resolveModuleName(uri, '');
-      }
-      if (!resolvedModuleName) {
-        resolvedModuleName = resolveModuleName(uri + '/index', '');
       }
 
       if (resolvedModuleName) {
