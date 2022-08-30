@@ -277,22 +277,16 @@ export class ComponentParser {
     }
 
     function loadCustomModule(prefix, uri) {
-      var componentModule;
       var resolvedModuleName = resolveModuleName(uri, 'xml');
-      try {
-        componentModule = resolvedModuleName ? global.loadModule(resolvedModuleName, true) : null;
-      } catch(err) {
-        if (Trace.isEnabled()) {
-          Trace.write('Module ' + uri + ' is not an xml file', Trace.categories.Debug);
-        }
+      if (!resolvedModuleName) {
+        resolvedModuleName = resolveModuleName(uri, '');
+      }
+      if (!resolvedModuleName) {
+        resolvedModuleName = resolveModuleName(uri + '/index', '');
       }
 
-      resolvedModuleName = resolveModuleName(uri, '');
-      if (componentModule == null) {
-        componentModule = resolvedModuleName ? global.loadModule(resolvedModuleName, true) : null;
-      }
-
-      if (componentModule != null) {
+      if (resolvedModuleName) {
+        let componentModule = global.loadModule(resolvedModuleName, true);
         customModules[prefix] = componentModule.default ?? componentModule;
       }
     }
