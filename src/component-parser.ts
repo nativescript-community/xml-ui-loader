@@ -1,5 +1,5 @@
 import { pascalCase } from 'change-case';
-import { parse } from 'path';
+import { join, parse } from 'path';
 import { isString } from './helpers/types';
 
 const ELEMENT_PREFIX = 'el';
@@ -27,6 +27,7 @@ export class ComponentParser {
   // Keep counter for the case of platform tags being inside platform tags
   private unsupportedPlatformTagCount: number = 0;
 
+  private moduleDirPath: string = '';
   private moduleRelativePath: string = '';
   private head: string = '';
   private body: string = '';
@@ -34,9 +35,10 @@ export class ComponentParser {
   private treeIndex: number = 0;
 
   constructor(moduleRelativePath: string, platform: string) {
-    const { ext, name } = parse(moduleRelativePath);
+    const { dir, ext, name } = parse(moduleRelativePath);
     const componentName = pascalCase(name);
 
+    this.moduleDirPath = dir;
     this.moduleRelativePath = moduleRelativePath.substring(0, moduleRelativePath.length - ext.length);
 
     this.appendImports();
@@ -236,17 +238,19 @@ export class ComponentParser {
     const attributeData: any[] = Object.values(attributes);
 
     /**
-     * There are 3 component scenarios
-     * 1. XML
-     * 2. XML + Script with event logic
-     * 3. Script
-     * In order to load the right file in case 2, we always check for XML first
-     * If no XML is found, proceed to loading script file
+     * By default, virtual-entry-javascript registers all application js, xml, and css files as modules.
+     * Registering namespaces will ensure node modules are also included in module register.
+     * However, we have to ensure that the right module key is used for files too so that module-name-resolver works properly.
+     * That is why getResolvePath will return the full relative path in app folder.
      */
     for (const { local, prefix, value } of attributeData) {
       if (local && prefix === 'xmlns') {
-        this.head += `global.registerModule('${value}', () => require('${value}'));`;
-        this.body += `loadCustomModule('${local}', '${value}');`;
+        const resolvePath = this.getResolvePath(value);
+        const ext = resolvePath.endsWith('.xml') ? 'xml' : '';
+
+        // Register module using resolve path as key and overwrite old registration if any
+        this.head += `global.registerModule('${resolvePath}', () => require('${value}'));`;
+        this.body += `loadCustomModule('${local}', '${resolvePath}', '${ext}');`;
       }
     }
   }
@@ -277,12 +281,12 @@ export class ComponentParser {
       return instance;
     }
 
-    function loadCustomModule(prefix, uri) {
-      var resolvedModuleName = resolveModuleName(uri, 'xml');
-      if (!resolvedModuleName) {
-        resolvedModuleName = resolveModuleName(uri, '');
+    function loadCustomModule(prefix, uri, ext) {
+      if (ext) {
+        uri = uri.substr(0, uri.length - (ext.length + 1));
       }
 
+      var resolvedModuleName = resolveModuleName(uri, ext);
       if (resolvedModuleName) {
         let componentModule = global.loadModule(resolvedModuleName, true);
         customModules[prefix] = componentModule.default ?? componentModule;
@@ -348,6 +352,10 @@ export class ComponentParser {
         }
       }
     }`;
+  }
+
+  private getResolvePath(uri: string): string {
+    return uri.startsWith('~/') ? uri.substr(2) : join(this.moduleDirPath, uri);
   }
 
   private addToComplexProperty(parentIndex, complexProperty: ComplexProperty) {

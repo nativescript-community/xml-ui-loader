@@ -6,8 +6,7 @@ import { ComponentParser } from './component-parser';
 export default function loader(content: string, map: any) {
   const callback = this.async();
   const { appPath, platform } = this.getOptions();
-  let moduleRelativePath = relative(appPath, this.resourcePath);
-  moduleRelativePath = `./${moduleRelativePath}`;
+  const moduleRelativePath = relative(appPath, this.resourcePath);
 
   try {
     const output = parseXMLTree(moduleRelativePath, content, platform);
