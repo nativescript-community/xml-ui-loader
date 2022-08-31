@@ -46,7 +46,7 @@ export class ComponentParser {
     this.body += `export default class ${componentName} {
       constructor() {`;
 
-    // Generate functions in constructor scope so that they are not accessible from outside
+    // Generate variable functions in constructor scope so that they are not accessible from outside
     this.generateHelperFunctions();
 
     this.platform = platform;
@@ -257,7 +257,7 @@ export class ComponentParser {
 
   private generateHelperFunctions() {
     // Declare functions here until core package has support for them
-    this.body += `function newInstance(elementName, prefix) {
+    this.body += `var newInstance = function(elementName, prefix) {
       var componentModule;
       if (!prefix) {
         componentModule = uiCoreModules[elementName];
@@ -279,9 +279,9 @@ export class ComponentParser {
       var instance = new componentModule();
       delete componentModule.prototype.__fallbackModuleRelativePath;
       return instance;
-    }
+    };
 
-    function loadCustomModule(prefix, uri, ext) {
+    var loadCustomModule = function(prefix, uri, ext) {
       if (ext) {
         uri = uri.substr(0, uri.length - (ext.length + 1));
       }
@@ -291,9 +291,9 @@ export class ComponentParser {
         let componentModule = global.loadModule(resolvedModuleName, true);
         customModules[prefix] = componentModule.default ?? componentModule;
       }
-    }
+    };
 
-    function isBinding(value) {
+    var isBinding = function(value) {
       var isBinding;
 
       if (typeof value === 'string') {
@@ -302,17 +302,17 @@ export class ComponentParser {
       }
 
       return isBinding;
-    }
+    };
 
-    function getBindingExpressionFromAttribute(value) {
+    var getBindingExpressionFromAttribute = function(value) {
       return value.replace('{{', '').replace('}}', '').trim();
-    }
+    };
 
-    function isKnownFunction(name, instance) {
+    var isKnownFunction = function(name, instance) {
       return instance.constructor && '${KNOWN_FUNCTIONS}' in instance.constructor && instance.constructor['${KNOWN_FUNCTIONS}'].indexOf(name) !== -1;
-    }
+    };
 
-    function setPropertyValue(instance, propertyName, propertyValue) {
+    var setPropertyValue = function(instance, propertyName, propertyValue) {
       if (propertyName.indexOf('.') !== -1) {
         let subObj = instance;
         const properties = propertyName.split('.');
@@ -351,7 +351,7 @@ export class ComponentParser {
           instance[propertyName] = propertyValue;
         }
       }
-    }`;
+    };`;
   }
 
   private getResolvePath(uri: string): string {
