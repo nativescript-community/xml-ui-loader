@@ -21,10 +21,31 @@ npm install @nativescript-community/xml-ui-loader --save-dev
 
 ## Usage
 
+### Import as a module
+
 One can easily import an XML component just like any regular JS module.  
 Example:
 ```javascript
 import MyActionBar from "./components/my-action-bar.xml";
+```
+
+### Custom components
+
+Regarding custom components, the method to import one inside XML has changed so that it's identical to importing modules in JavaScript.
+
+Correct approaches, supposing caller directory path is `app/views/home` and components directory path is `app/components`
+```xml
+<!-- Works -->
+<Page xmlns:myxml="../../components/my-xml-component.xml" xmlns:myxml="../../components/my-js-component">
+</Page>
+
+<!-- Works -->
+<Page xmlns:myxml="~/components/my-xml-component.xml" xmlns:myxml="~/components/my-js-component">
+</Page>
+
+<!-- Does not work! -->
+<Page xmlns:myxml="components/my-xml-component.xml" xmlns:myxml="components/my-js-component">
+</Page>
 ```
 
 ## Setup
