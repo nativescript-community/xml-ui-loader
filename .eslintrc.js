@@ -1,4 +1,5 @@
 module.exports = {
+  root: true,
   'parserOptions': {
     'ecmaVersion': 2020,
     'ecmaFeatures': {
@@ -34,12 +35,6 @@ module.exports = {
     'no-prototype-builtins': 0,
   },
   overrides: [{
-    'files': '*',
-    'rules': {
-      'quotes': [2, 'single']
-    }
-  },
-  {
     'files': ['*.ts', '*.tsx'],
     'parser': '@typescript-eslint/parser',
     'extends': [
