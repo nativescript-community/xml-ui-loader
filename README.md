@@ -48,6 +48,24 @@ Correct approaches, supposing caller directory path is `app/views/home` and comp
 </Page>
 ```
 
+### Script & Style
+
+In general, one is able to create script and style files for an XML component provided that they use the same filename.  
+The first contains useful entities like events used by XML and the latter applies all CSS to it.  
+
+There is also a forgotten method to bind scripts or styles to XML.  
+It's `codeFile` and `cssFile` properties. These properties are assigned to top element inside an XML file and are especially useful when one wishes to bind a single script or style file with multiple components.  
+
+```xml
+<!-- Script -->
+<Page codeFile="~/views/common/myscript">
+</Page>
+
+<!-- CSS -->
+<Page cssFile="~/views/common/mystyle">
+</Page>
+```
+
 ## Setup
 
 This loader requires a new webpack configuration:
@@ -55,7 +73,8 @@ This loader requires a new webpack configuration:
 `webpack.config.js`
 ```javascript
 const webpack = require('@nativescript/webpack');
-const { getEntryPath, getEntryDirPath, getPlatformName } = require('@nativescript/webpack/dist/helpers/platform');
+const { getEntryDirPath, getPlatformName } = require('@nativescript/webpack/dist/helpers/platform');
+const { chainLoaderConfiguration } = require("@nativescript-community/xml-ui-loader/dist/helpers/webpack");
 
 module.exports = (env) => {
   webpack.init(env);
@@ -64,39 +83,9 @@ module.exports = (env) => {
   // https://docs.nativescript.org/webpack
 
   webpack.chainWebpack((config) => {
-    config.module.rules.delete('hmr-core');
-    config.module.rules.delete('xml');
-
-    // Set up core HMR anew to support xml extension (add ts extension for TypeScript apps)
-    config.module
-      .rule('hmr-core')
-      .before('js')
-      .test(/\.(js|xml)$/)
-      .exclude.add(/node_modules/)
-      .add(getEntryPath())
-      .end()
-      .use('nativescript-hot-loader')
-      .loader('nativescript-hot-loader')
-      .options({
-        appPath: getEntryDirPath(),
-      });
-
-    config.module
-      .rule('xml')
-      .test(/\.xml$/i)
-      .use('@nativescript-community/xml-ui-loader')
-      .loader('@nativescript-community/xml-ui-loader')
-      .options({
-        appPath: getEntryDirPath(),
-        platform: getPlatformName()
-      });
-
-
-    config.plugin('DefinePlugin').tap(args => {
-      Object.assign(args[0], {
-        '__UI_USE_XML_PARSER__': false
-      });
-      return args;
+    chainLoaderConfiguration(config, {
+      appPath: getEntryDirPath(),
+      platform: getPlatformName()
     });
   });
 

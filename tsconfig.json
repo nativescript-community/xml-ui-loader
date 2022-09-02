@@ -2,6 +2,7 @@
   "compilerOptions": {
     "rootDir": "./src",
     "baseUrl": "./src",
+    "allowJs": true,
     "target": "es2017",
     "module": "commonjs",
     "outDir": "./dist",

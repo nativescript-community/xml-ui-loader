@@ -8,8 +8,6 @@ const CSS_FILE = 'cssFile';
 const MULTI_TEMPLATE_TAG = 'template';
 const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
 
-// For example, ListView.itemTemplateSelector
-const KNOWN_FUNCTIONS = 'knownFunctions';
 const KNOWN_TEMPLATE_SUFFIX = 'Template';
 const KNOWN_MULTI_TEMPLATE_SUFFIX = 'Templates';
 const knownCollections: string[] = ['items', 'spans', 'actionItems'];
@@ -48,9 +46,6 @@ export class ComponentParser {
 
     this.body += `export default class ${componentName} {
       constructor() {`;
-
-    // Generate variable functions in constructor scope so that they are not accessible from outside
-    this.generateHelperFunctions();
 
     this.platform = platform;
   }
@@ -176,8 +171,7 @@ export class ComponentParser {
   private appendImports() {
     this.head += `var { resolveModuleName } = require('@nativescript/core/module-name-resolver');
     var uiCoreModules = require('@nativescript/core/ui');
-    var { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');
-    var { getBindingOptions, bindingConstants } = require('@nativescript/core/ui/builder/binding-builder');
+    var { setPropertyValue } = require('@nativescript/core/ui/builder/component-builder');
     var customModules = {};
     `;
   }
@@ -196,14 +190,25 @@ export class ComponentParser {
       }
 
       // This is necessary for proper string escape
+      let propertyName = local;
       const attrValue = value.replaceAll('\'', '\\\'');
+      let instanceReference = `${ELEMENT_PREFIX}${this.treeIndex}`;
 
-      this.body += `setPropertyValue(${ELEMENT_PREFIX}${this.treeIndex}, '${local}', '${attrValue}');`;
+      if (propertyName.indexOf('.') !== -1) {
+        const properties = propertyName.split('.');
+
+        for (let i = 0, length = properties.length - 1; i < length; i++) {
+          instanceReference += `?.${properties[i]}`;
+        }
+        propertyName = properties[properties.length - 1];
+      }
+
+      this.body += `${instanceReference} && setPropertyValue(${instanceReference}, null, moduleExports, '${propertyName}', '${attrValue}');`;
     }
   }
 
   private buildComponent(elementName: string, prefix: string, attributes) {
-    this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = newInstance('${elementName}', '${prefix}');`;
+    this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = global.xmlCompiler.newInstance('${elementName}', '${prefix}', uiCoreModules, customModules);`;
 
     if (this.treeIndex == 0) {
       // Script
@@ -252,108 +257,9 @@ export class ComponentParser {
 
         // Register module using resolve path as key and overwrite old registration if any
         this.head += `global.registerModule('${resolvedPath}', () => require('${value}'));`;
-        this.body += `loadCustomModule('${local}', '${resolvedPath}', '${ext}');`;
+        this.body += `global.xmlCompiler.loadCustomModule('${local}', '${resolvedPath}', '${ext}', customModules);`;
       }
     }
-  }
-
-  private generateHelperFunctions() {
-    // Declare functions here until core package has support for them
-    this.body += `var newInstance = function(elementName, prefix) {
-      var componentModule;
-      if (!prefix) {
-        componentModule = uiCoreModules[elementName];
-      } else {
-        if (prefix in customModules) {
-          if (elementName in customModules[prefix]) {
-            componentModule = customModules[prefix][elementName];
-          } else if (elementName === customModules[prefix].name) {
-            componentModule = customModules[prefix];
-          } else {
-            throw new Error('Component ' + elementName + ' cannot be found in ' + prefix + ' module');
-          }
-          componentModule.prototype.__fallbackModuleRelativePath = '${this.moduleRelativePath}';
-        } else {
-          throw new Error('Cannot resolve module ' + prefix + ' for component ' + elementName);
-        }
-      }
-
-      var instance = new componentModule();
-      delete componentModule.prototype.__fallbackModuleRelativePath;
-      return instance;
-    };
-
-    var loadCustomModule = function(prefix, uri, ext) {
-      if (ext) {
-        uri = uri.substr(0, uri.length - (ext.length + 1));
-      }
-
-      var resolvedModuleName = resolveModuleName(uri, ext);
-      if (resolvedModuleName) {
-        let componentModule = global.loadModule(resolvedModuleName, true);
-        customModules[prefix] = componentModule.default ?? componentModule;
-      }
-    };
-
-    var isBinding = function(value) {
-      var isBinding;
-
-      if (typeof value === 'string') {
-        const str = value.trim();
-        isBinding = str.indexOf('{{') === 0 && str.lastIndexOf('}}') === str.length - 2;
-      }
-
-      return isBinding;
-    };
-
-    var getBindingExpressionFromAttribute = function(value) {
-      return value.replace('{{', '').replace('}}', '').trim();
-    };
-
-    var isKnownFunction = function(name, instance) {
-      return instance.constructor && '${KNOWN_FUNCTIONS}' in instance.constructor && instance.constructor['${KNOWN_FUNCTIONS}'].indexOf(name) !== -1;
-    };
-
-    var setPropertyValue = function(instance, propertyName, propertyValue) {
-      if (propertyName.indexOf('.') !== -1) {
-        let subObj = instance;
-        const properties = propertyName.split('.');
-        const subPropName = properties[properties.length - 1];
-
-        for (let i = 0, length = properties.length - 1; i < length; i++) {
-          if (subObj != null) {
-            subObj = subObj[properties[i]];
-          }
-        }
-
-        if (subObj == null) {
-          return;
-        }
-
-        instance = subObj;
-      }
-
-      if (isBinding(propertyValue) && instance.bind) {
-        let bindOptions = getBindingOptions(propertyName, getBindingExpressionFromAttribute(propertyValue));
-        instance.bind({
-          sourceProperty: bindOptions[bindingConstants.sourceProperty],
-          targetProperty: bindOptions[bindingConstants.targetProperty],
-          expression: bindOptions[bindingConstants.expression],
-          twoWay: bindOptions[bindingConstants.twoWay],
-        },
-        bindOptions[bindingConstants.source]
-        );
-      } else {
-        let handler = moduleExports && moduleExports[propertyValue];
-        if (isEventOrGesture(propertyName, instance)) {
-          typeof handler === 'function' && instance.on(propertyName, handler);
-        } else if (isKnownFunction(propertyName, instance) && typeof handler === 'function') {
-          instance[propertyName] = handler;
-        } else {
-          instance[propertyName] = propertyValue;
-        }
-      }
-    };`;
   }
 
   private getResolvedPath(uri: string): string {
