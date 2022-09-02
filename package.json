@@ -1,7 +1,7 @@
 {
   "name": "@nativescript-community/xml-ui-loader",
-  "version": "1.0.2",
-  "description": "",
+  "version": "1.1.0",
+  "description": "A webpack loader that works as an ahead-of-time (AOT) compiler which turns XML content into JavaScript during the build phase.",
   "main": "dist/index.js",
   "files": [
     "dist"
