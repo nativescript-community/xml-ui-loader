@@ -3,6 +3,8 @@ import { join, parse } from 'path';
 import { isString } from './helpers/types';
 
 const ELEMENT_PREFIX = 'el';
+const CODE_FILE = 'codeFile';
+const CSS_FILE = 'cssFile';
 const MULTI_TEMPLATE_TAG = 'template';
 const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
 
@@ -168,7 +170,6 @@ export class ComponentParser {
 
   private appendImports() {
     this.head += `var { resolveModuleName } = require('@nativescript/core/module-name-resolver');
-    var { Trace } = require('@nativescript/core/trace');
     var uiCoreModules = require('@nativescript/core/ui');
     var { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');
     var { getBindingOptions, bindingConstants } = require('@nativescript/core/ui/builder/binding-builder');
@@ -201,35 +202,36 @@ export class ComponentParser {
 
     if (this.treeIndex == 0) {
       // Script
-      this.body += `var moduleExports;
-      var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');
-      if (!resolvedCodeModuleName && this.__fallbackModuleRelativePath) {
-        resolvedCodeModuleName = resolveModuleName(this.__fallbackModuleRelativePath, '');
+      if (attributes[CODE_FILE]) {
+        const resolvePath = this.getResolvePath(attributes[CODE_FILE].value);
+        this.body += `var resolvedCodeModuleName = resolveModuleName('${resolvePath}', '');
+        if (!resolvedCodeModuleName) {
+          throw new Error('Failed to resolve ${CODE_FILE} ${resolvePath}');
+        }
+
+        var moduleExports = global.loadModule(resolvedCodeModuleName, true);`;
+      } else {
+        this.body += `var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');
+        if (!resolvedCodeModuleName && this.__fallbackModuleRelativePath) {
+          resolvedCodeModuleName = resolveModuleName(this.__fallbackModuleRelativePath, '');
+        }
+
+        var moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : null;`;
       }
 
-      if (resolvedCodeModuleName) {
-        try {
-          moduleExports = global.loadModule(resolvedCodeModuleName, true);
-        } catch(err) {
-          if (Trace.isEnabled()) {
-            Trace.write('Failed to load script file for module ${this.moduleRelativePath}', Trace.categories.Error);
-          }
-        }
-      } else {
-        if (Trace.isEnabled()) {
-          Trace.write('Module ${this.moduleRelativePath} has no script file', Trace.categories.Debug);
-        }
-      }`;
-
       // Style
-      this.body += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');
-      if (resolvedCssModuleName) {
-        ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);
-      } else {
-        if (Trace.isEnabled()) {
-          Trace.write('Module ${this.moduleRelativePath} has no style file', Trace.categories.Debug);
+      if (attributes[CSS_FILE]) {
+        const resolvePath = this.getResolvePath(attributes[CSS_FILE].value);
+        this.body += `var resolvedCssModuleName = resolveModuleName('${resolvePath}', 'css');
+        if (!resolvedCssModuleName) {
+          throw new Error('Failed to resolve ${CSS_FILE} ${resolvePath}');
         }
-      }`;
+
+        ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);`;
+      } else {
+        this.body += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');
+        resolvedCssModuleName && ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);`;
+      }
     }
     this.applyComponentAttributes(attributes);
   }
