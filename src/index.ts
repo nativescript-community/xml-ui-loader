@@ -1,22 +1,24 @@
 import { js as beautify } from 'js-beautify';
 import { relative } from 'path';
 import { parser } from 'sax';
+import { promisify } from 'util';
 import { ComponentParser } from './component-parser';
 
 export default function loader(content: string, map: any) {
   const callback = this.async();
-  const { appPath, platform } = this.getOptions();
-  const moduleRelativePath = relative(appPath, this.resourcePath);
 
-  try {
-    const output = parseXMLTree(moduleRelativePath, content, platform);
+  parseXMLTree.bind(this)(content).then((output) => {
     callback(null, output, map);
-  } catch(err) {
+  }).catch((err) => {
     callback(err);
-  }
+  });
 }
 
-function parseXMLTree(moduleRelativePath: string, content: string, platform: string) {
+async function parseXMLTree(content: string) {
+  const { appPath, platform } = this.getOptions();
+  const moduleRelativePath = relative(appPath, this.resourcePath);
+  const resolveAsync = promisify(this.resolve);
+
   const xmlParser = parser(true, { xmlns: true });
   const componentParser = new ComponentParser(moduleRelativePath, platform);
 
@@ -38,6 +40,9 @@ function parseXMLTree(moduleRelativePath: string, content: string, platform: str
    
   xmlParser.write(content).close();
   componentParser.finish();
+
+  // XML parser does not work asynchronously, so we wait to resolve requested modules in the end
+  await Promise.all(componentParser.getResolvedRequests().map(request => resolveAsync(this.context, request)));
 
   return beautify(componentParser.getOutput(), {
     indent_size: 2

@@ -1,3 +1,4 @@
+const { join } = require('path');
 const xmlLoader = require('../dist').default;
 
 if (process.argv.length < 3) {
@@ -25,7 +26,11 @@ const mockContext = {
       platform: 'ios'
     };
   },
-  resourcePath: '/home/test/app/views/home/home.xml'
+  resolve: (context, request, callback) => {
+    callback(null, join(context, request));
+  },
+  resourcePath: '/home/test/app/views/home/home.xml',
+  context: '/home/test/app/views/home'
 };
 
 xmlLoader.bind(mockContext)(process.argv[2], null);

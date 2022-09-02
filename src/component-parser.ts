@@ -25,6 +25,7 @@ interface ComplexProperty {
 export class ComponentParser {
   private parentIndices = new Array<number>();
   private complexProperties = new Array<ComplexProperty>();
+  private resolvedRequests = new Array<string>();
 
   // Keep counter for the case of platform tags being inside platform tags
   private unsupportedPlatformTagCount: number = 0;
@@ -158,6 +159,10 @@ export class ComponentParser {
     }
   }
 
+  public getResolvedRequests(): string[] {
+    return this.resolvedRequests;
+  }
+
   public finish() {
     this.body += `return ${ELEMENT_PREFIX}0;
       }
@@ -203,35 +208,30 @@ export class ComponentParser {
     if (this.treeIndex == 0) {
       // Script
       if (attributes[CODE_FILE]) {
-        const resolvePath = this.getResolvePath(attributes[CODE_FILE].value);
-        this.body += `var resolvedCodeModuleName = resolveModuleName('${resolvePath}', '');
-        if (!resolvedCodeModuleName) {
-          throw new Error('Failed to resolve ${CODE_FILE} ${resolvePath}');
-        }
+        const attrValue = attributes[CODE_FILE].value;
+        this.resolvedRequests.push(attrValue);
 
-        var moduleExports = global.loadModule(resolvedCodeModuleName, true);`;
+        const resolvedPath = this.getResolvedPath(attrValue);
+        this.body += `var resolvedCodeModuleName = resolveModuleName('${resolvedPath}', '');`;
       } else {
         this.body += `var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');
         if (!resolvedCodeModuleName && this.__fallbackModuleRelativePath) {
           resolvedCodeModuleName = resolveModuleName(this.__fallbackModuleRelativePath, '');
-        }
-
-        var moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : null;`;
+        }`;
       }
+      this.body += 'var moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : null;';
 
       // Style
       if (attributes[CSS_FILE]) {
-        const resolvePath = this.getResolvePath(attributes[CSS_FILE].value);
-        this.body += `var resolvedCssModuleName = resolveModuleName('${resolvePath}', 'css');
-        if (!resolvedCssModuleName) {
-          throw new Error('Failed to resolve ${CSS_FILE} ${resolvePath}');
-        }
+        const attrValue = attributes[CSS_FILE].value;
+        this.resolvedRequests.push(attrValue);
 
-        ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);`;
+        const resolvedPath = this.getResolvedPath(attrValue);
+        this.body += `var resolvedCssModuleName = resolveModuleName('${resolvedPath}', 'css');`;
       } else {
-        this.body += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');
-        resolvedCssModuleName && ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);`;
+        this.body += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');`;
       }
+      this.body += `resolvedCssModuleName && ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);`;
     }
     this.applyComponentAttributes(attributes);
   }
@@ -242,17 +242,17 @@ export class ComponentParser {
     /**
      * By default, virtual-entry-javascript registers all application js, xml, and css files as modules.
      * Registering namespaces will ensure node modules are also included in module register.
-     * However, we have to ensure that the right module key is used for files too so that module-name-resolver works properly.
-     * That is why getResolvePath will return the full relative path in app folder.
+     * However, we have to ensure that the resolved path of files is used as module key so that module-name-resolver works properly.
      */
     for (const { local, prefix, value } of attributeData) {
       if (local && prefix === 'xmlns') {
-        const resolvePath = this.getResolvePath(value);
-        const ext = resolvePath.endsWith('.xml') ? 'xml' : '';
+        this.resolvedRequests.push(value);
+        const resolvedPath = this.getResolvedPath(value);
+        const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
 
         // Register module using resolve path as key and overwrite old registration if any
-        this.head += `global.registerModule('${resolvePath}', () => require('${value}'));`;
-        this.body += `loadCustomModule('${local}', '${resolvePath}', '${ext}');`;
+        this.head += `global.registerModule('${resolvedPath}', () => require('${value}'));`;
+        this.body += `loadCustomModule('${local}', '${resolvedPath}', '${ext}');`;
       }
     }
   }
@@ -356,7 +356,7 @@ export class ComponentParser {
     };`;
   }
 
-  private getResolvePath(uri: string): string {
+  private getResolvedPath(uri: string): string {
     return uri.startsWith('~/') ? uri.substr(2) : join(this.moduleDirPath, uri);
   }
 
