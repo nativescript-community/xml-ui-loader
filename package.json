@@ -17,6 +17,13 @@
     "type": "git",
     "url": "git+https://github.com/nativescript-community/xml-ui-loader.git"
   },
+  "keywords": [
+    "NativeScript",
+    "compiler",
+    "xml",
+    "webpack",
+    "webpack-loader"
+  ],
   "author": "CatchABus",
   "license": "Apache-2.0",
   "bugs": {
