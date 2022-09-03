@@ -22,14 +22,21 @@ async function parseXMLTree(content: string) {
   const xmlParser = parser(true, { xmlns: true });
   const componentParser = new ComponentParser(moduleRelativePath, platform);
 
+  let needsCompilation = true;
+
   // Register ios and android prefixes as namespaces to avoid "unbound xml namespace" errors
   xmlParser.ns['ios'] = xmlParser.ns['android'] = xmlParser.ns['desktop'] = xmlParser.ns['web'] = 'http://schemas.nativescript.org/tns.xsd';
 
   xmlParser.onopentag = (node) => {
-    componentParser.handleOpenTag(node.local, node.prefix, node.attributes);
+    needsCompilation && componentParser.handleOpenTag(node.local, node.prefix, node.attributes);
+  };
+  xmlParser.onprocessinginstruction = (node) => {
+    if (node.name == 'xml') {
+      needsCompilation = false;
+    }
   };
   xmlParser.onclosetag = (elementName) => {
-    componentParser.handleCloseTag(elementName);
+    needsCompilation && componentParser.handleCloseTag(elementName);
   };
   xmlParser.onerror = (err) => {
     // Allow using ampersand
@@ -37,8 +44,16 @@ async function parseXMLTree(content: string) {
       xmlParser.error = null;
     }
   };
-   
   xmlParser.write(content).close();
+
+  if (!needsCompilation) {
+    // escape special whitespace characters
+    // see: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify#Issue_with_plain_JSON.stringify_for_use_as_JavaScript
+    const xml = JSON.stringify(content).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+    return `const RAW_XML_CONTENT = ${xml};
+    export default RAW_XML_CONTENT;`;
+  }
+
   componentParser.finish();
 
   // XML parser does not work asynchronously, so we wait to resolve requested modules in the end

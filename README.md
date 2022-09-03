@@ -29,6 +29,18 @@ Example:
 import MyActionBar from "./components/my-action-bar.xml";
 ```
 
+### Import as plain XML
+
+To import the raw content of an XML file, append an XML declaration to it.  
+Example:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<list>
+  ...
+</list>
+```
+This will make sure import will resolve to plain XML string content.
+
 ### Custom components
 
 Regarding custom components, the method to import one inside XML has changed so that it's identical to importing modules in JavaScript.
