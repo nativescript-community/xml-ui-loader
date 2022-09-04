@@ -48,15 +48,15 @@ Regarding custom components, the method to import one inside XML has changed so 
 Correct approaches, supposing caller directory path is `app/views/home` and components directory path is `app/components`
 ```xml
 <!-- Works -->
-<Page xmlns:myxml="../../components/my-xml-component.xml" xmlns:myxml="../../components/my-js-component">
+<Page xmlns:myxml="../../components/my-xml-component.xml" xmlns:myjs="../../components/my-js-component">
 </Page>
 
 <!-- Works -->
-<Page xmlns:myxml="~/components/my-xml-component.xml" xmlns:myxml="~/components/my-js-component">
+<Page xmlns:myxml="~/components/my-xml-component.xml" xmlns:myjs="~/components/my-js-component">
 </Page>
 
 <!-- Does not work! -->
-<Page xmlns:myxml="components/my-xml-component.xml" xmlns:myxml="components/my-js-component">
+<Page xmlns:myxml="components/my-xml-component.xml" xmlns:myjs="components/my-js-component">
 </Page>
 ```
 
