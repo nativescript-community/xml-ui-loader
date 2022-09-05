@@ -1,10 +1,14 @@
 var { resolveModuleName } = require('@nativescript/core/module-name-resolver');
 
 global.xmlCompiler = {
-  newInstance: function(elementName, prefix, uiCoreModules, customModules) {
+  newInstance: function({elementName = null, prefix = '', moduleExports = null, uiCoreModules = {}, customModules = {}} = {}) {
     let componentModule;
     if (!prefix) {
-      componentModule = uiCoreModules[elementName];
+      if (elementName in uiCoreModules) {
+        componentModule = uiCoreModules[elementName];
+      } else {
+        throw new Error('Component ' + elementName + ' cannot be found in ui core modules');
+      }
     } else {
       if (prefix in customModules) {
         if (elementName in customModules[prefix]) {
@@ -14,14 +18,14 @@ global.xmlCompiler = {
         } else {
           throw new Error('Component ' + elementName + ' cannot be found in ' + prefix + ' module');
         }
-        componentModule.prototype.__fallbackModuleRelativePath = '${this.moduleRelativePath}';
+        componentModule.prototype.__fallbackModuleExports = moduleExports;
       } else {
         throw new Error('Cannot resolve module ' + prefix + ' for component ' + elementName);
       }
     }
 
     const instance = new componentModule();
-    delete componentModule.prototype.__fallbackModuleRelativePath;
+    delete componentModule.prototype.__fallbackModuleExports;
     return instance;
   },
   loadCustomModule: function(prefix, uri, ext, customModules) {

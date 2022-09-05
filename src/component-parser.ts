@@ -208,23 +208,22 @@ export class ComponentParser {
   }
 
   private buildComponent(elementName: string, prefix: string, attributes) {
-    this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = global.xmlCompiler.newInstance('${elementName}', '${prefix}', uiCoreModules, customModules);`;
+    this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = global.xmlCompiler.newInstance({elementName: '${elementName}', prefix: '${prefix}', moduleExports, uiCoreModules, customModules});`;
 
     if (this.treeIndex == 0) {
       // Script
+
       if (attributes[CODE_FILE]) {
         const attrValue = attributes[CODE_FILE].value;
         this.resolvedRequests.push(attrValue);
 
         const resolvedPath = this.getResolvedPath(attrValue);
         this.body += `var resolvedCodeModuleName = resolveModuleName('${resolvedPath}', '');`;
+        this.body += 'var moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : null;';
       } else {
         this.body += `var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');
-        if (!resolvedCodeModuleName && this.__fallbackModuleRelativePath) {
-          resolvedCodeModuleName = resolveModuleName(this.__fallbackModuleRelativePath, '');
-        }`;
+        var moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : this.__fallbackModuleExports;`;
       }
-      this.body += 'var moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : null;';
 
       // Style
       if (attributes[CSS_FILE]) {
