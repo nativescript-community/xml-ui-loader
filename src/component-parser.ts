@@ -73,41 +73,48 @@ export class ComponentParser {
     const parentIndex: number = this.parentIndices[this.parentIndices.length - 1] ?? -1;
 
     if (elementName === MULTI_TEMPLATE_TAG) {
-      const complexProperty = this.complexProperties[this.complexProperties.length - 1];
-      if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
-        if (MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes) {
-          // This is necessary for proper string escape
-          const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].replaceAll('\'', '\\\'');
-          this.body += `{ key: '${attrValue}', createView: () => {`;
-        } else {
-          // eslint-disable-next-line no-console
-          console.warn('Found template without key inside ${complexProperty.name}');
+      if (parentIndex >= 0) {
+        const complexProperty = this.complexProperties[this.complexProperties.length - 1];
+        if (complexProperty && complexProperty.parentIndex == parentIndex) {
+          if (MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes) {
+            // This is necessary for proper string escape
+            const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].replaceAll('\'', '\\\'');
+            this.body += `{ key: '${attrValue}', createView: () => {`;
+          } else {
+            // eslint-disable-next-line no-console
+            console.warn('Found template without key inside ${complexProperty.name}');
+          }
         }
+      } else {
+        throw new Error(`No parent found for template element '${elementName}'`);
       }
     } else if (this.isComplexProperty(elementName)) {
-      const complexProperty: ComplexProperty = {
-        parentIndex,
-        name: this.getComplexPropertyName(elementName),
-        elementReferences: [],
-        templateViewIndex: this.treeIndex
-      };
+      if (parentIndex >= 0) {
+        const complexProperty: ComplexProperty = {
+          parentIndex,
+          name: this.getComplexPropertyName(elementName),
+          elementReferences: [],
+          templateViewIndex: this.treeIndex
+        };
 
-      this.complexProperties.push(complexProperty);
+        this.complexProperties.push(complexProperty);
 
-      this.body += `/* ${elementName} - start */`;
-      
-      if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
-        this.body += `${ELEMENT_PREFIX}${parentIndex}.${complexProperty.name} = () => {`;
-      } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
-        this.body += `${ELEMENT_PREFIX}${parentIndex}.${complexProperty.name} = [`;
+        this.body += `/* ${elementName} - start */`;
+        
+        if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
+          this.body += `${ELEMENT_PREFIX}${parentIndex}.${complexProperty.name} = () => {`;
+        } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
+          this.body += `${ELEMENT_PREFIX}${parentIndex}.${complexProperty.name} = [`;
+        }
+      } else {
+        throw new Error(`No parent found for template element '${elementName}'`);
       }
     } else {
-      const complexProperty = this.complexProperties[this.complexProperties.length - 1];
-
       this.checkForNamespaces(attributes);
       this.buildComponent(elementName, prefix, attributes);
 
       if (parentIndex >= 0) {
+        const complexProperty = this.complexProperties[this.complexProperties.length - 1];
         if (complexProperty && complexProperty.parentIndex == parentIndex) {
           // Add component to complex property of parent component
           this.addToComplexProperty(parentIndex, complexProperty);
@@ -137,31 +144,34 @@ export class ComponentParser {
     }
 
     const parentIndex: number = this.parentIndices[this.parentIndices.length - 1] ?? -1;
-    const complexProperty = this.complexProperties[this.complexProperties.length - 1];
+    if (parentIndex >= 0) {
+      const complexProperty = this.complexProperties[this.complexProperties.length - 1];
 
-    if (elementName === MULTI_TEMPLATE_TAG) {
-      if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
-        this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; }},` : 'return null; }},';
-        complexProperty.templateViewIndex = this.treeIndex;
-      }
-    } else if (this.isComplexProperty(elementName)) {
-      if (complexProperty) {
-        if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
-          this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; };` : 'return null; };';
-        } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
-          this.body += '];';
-        } else if (parentIndex >= 0) {
-          // If parent is AddArrayFromBuilder call the interface method to populate the array property
-          this.body += `${ELEMENT_PREFIX}${parentIndex}._addArrayFromBuilder && ${ELEMENT_PREFIX}${parentIndex}._addArrayFromBuilder('${complexProperty.name}', [${complexProperty.elementReferences.join(', ')}]);`;
-          complexProperty.elementReferences = [];
+      if (elementName === MULTI_TEMPLATE_TAG) {
+        if (complexProperty && complexProperty.parentIndex == parentIndex) {
+          this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; }},` : 'return null; }},';
+          complexProperty.templateViewIndex = this.treeIndex;
         }
+      } else if (this.isComplexProperty(elementName)) {
+        if (complexProperty) {
+          if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
+            this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; };` : 'return null; };';
+          } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
+            this.body += '];';
+          } else {
+            // If parent is AddArrayFromBuilder call the interface method to populate the array property
+            this.body += `${ELEMENT_PREFIX}${parentIndex}._addArrayFromBuilder && ${ELEMENT_PREFIX}${parentIndex}._addArrayFromBuilder('${complexProperty.name}', [${complexProperty.elementReferences.join(', ')}]);`;
+            complexProperty.elementReferences = [];
+          }
+
+          this.body += `/* ${elementName} - end */`;
+          // Remove the last complexProperty from the complexProperties collection (move to the previous complexProperty scope)
+          this.complexProperties.pop();
+        }
+      } else {
+        // Remove the last parent from the parents collection (move to the previous parent scope)
+        this.parentIndices.pop();
       }
-      this.body += `/* ${elementName} - end */`;
-      // Remove the last complexProperty from the complexProperties collection (move to the previous complexProperty scope)
-      this.complexProperties.pop();
-    } else {
-      // Remove the last parent from the parents collection (move to the previous parent scope)
-      this.parentIndices.pop();
     }
   }
 
