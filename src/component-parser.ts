@@ -20,13 +20,13 @@ interface ComplexProperty {
   templateViewIndex?: number;
 }
 
-interface PrefixedReference {
-  local: string;
-  prefix: string;
+interface ParentInfo {
+  index: number;
+  tagName: string;
 }
 
 export class ComponentParser {
-  private parentIndices = new Array<number>();
+  private parents = new Array<ParentInfo>();
   private complexProperties = new Array<ComplexProperty>();
   private resolvedRequests = new Array<string>();
 
@@ -56,12 +56,9 @@ export class ComponentParser {
   }
 
   public handleOpenTag(tagName: string, attributes) {
-    const { local, prefix } = this.getPrefixAndLocalByName(tagName);
-    const elementName = local;
-
     // Platform tags
-    if (knownPlatforms.includes(elementName)) {
-      if (elementName.toLowerCase() !== this.platform) {
+    if (knownPlatforms.includes(tagName)) {
+      if (tagName.toLowerCase() !== this.platform) {
         this.unsupportedPlatformTagCount++;
       }
       return;
@@ -70,12 +67,12 @@ export class ComponentParser {
       return;
     }
 
-    const parentIndex: number = this.parentIndices[this.parentIndices.length - 1] ?? -1;
+    const parent: ParentInfo = this.parents[this.parents.length - 1];
 
-    if (elementName === MULTI_TEMPLATE_TAG) {
-      if (parentIndex >= 0) {
+    if (tagName === MULTI_TEMPLATE_TAG) {
+      if (parent != null) {
         const complexProperty = this.complexProperties[this.complexProperties.length - 1];
-        if (complexProperty && complexProperty.parentIndex == parentIndex) {
+        if (complexProperty && complexProperty.parentIndex == parent.index) {
           if (MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes) {
             // This is necessary for proper string escape
             const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].replaceAll('\'', '\\\'');
@@ -86,55 +83,61 @@ export class ComponentParser {
           }
         }
       } else {
-        throw new Error(`No parent found for template element '${elementName}'`);
+        throw new Error(`No parent found for template '${tagName}'`);
       }
-    } else if (this.isComplexProperty(elementName)) {
-      if (parentIndex >= 0) {
-        const complexProperty: ComplexProperty = {
-          parentIndex,
-          name: this.getComplexPropertyName(elementName),
-          elementReferences: [],
-          templateViewIndex: this.treeIndex
-        };
+    } else if (this.isComplexProperty(tagName)) {
+      if (parent != null) {
+        if (tagName == parent.tagName) {
+          const complexProperty: ComplexProperty = {
+            parentIndex: parent.index,
+            name: this.getComplexPropertyName(tagName),
+            elementReferences: [],
+            templateViewIndex: this.treeIndex
+          };
 
-        this.complexProperties.push(complexProperty);
+          this.complexProperties.push(complexProperty);
 
-        this.body += `/* ${elementName} - start */`;
-        
-        if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
-          this.body += `${ELEMENT_PREFIX}${parentIndex}.${complexProperty.name} = () => {`;
-        } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
-          this.body += `${ELEMENT_PREFIX}${parentIndex}.${complexProperty.name} = [`;
+          this.body += `/* ${tagName} - start */`;
+          
+          if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
+            this.body += `${ELEMENT_PREFIX}${parent.index}.${complexProperty.name} = () => {`;
+          } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
+            this.body += `${ELEMENT_PREFIX}${parent.index}.${complexProperty.name} = [`;
+          }
+        } else {
+          throw new Error(`Property '${tagName}' is not suitable for parent '${parent.tagName}'`);
         }
       } else {
-        throw new Error(`No parent found for template element '${elementName}'`);
+        throw new Error(`No parent found for template '${tagName}'`);
       }
     } else {
+      const [ elementName, prefix ] = this.getLocalAndPrefixByName(tagName);
+
       this.checkForNamespaces(attributes);
       this.buildComponent(elementName, prefix, attributes);
 
-      if (parentIndex >= 0) {
+      if (parent != null) {
         const complexProperty = this.complexProperties[this.complexProperties.length - 1];
-        if (complexProperty && complexProperty.parentIndex == parentIndex) {
+        if (complexProperty && complexProperty.parentIndex == parent.index) {
           // Add component to complex property of parent component
-          this.addToComplexProperty(parentIndex, complexProperty);
+          this.addToComplexProperty(parent.index, complexProperty);
         } else {
-          this.body += `${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder && ${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder('${elementName}', ${ELEMENT_PREFIX}${this.treeIndex});`;
+          this.body += `${ELEMENT_PREFIX}${parent.index}._addChildFromBuilder && ${ELEMENT_PREFIX}${parent.index}._addChildFromBuilder('${elementName}', ${ELEMENT_PREFIX}${this.treeIndex});`;
         }
       }
 
-      this.parentIndices.push(this.treeIndex);
+      this.parents.push({
+        index: this.treeIndex,
+        tagName
+      });
       this.treeIndex++;
     }
   }
 
   public handleCloseTag(tagName: string) {
-    const { local } = this.getPrefixAndLocalByName(tagName);
-    const elementName = local;
-
     // Platform tags
-    if (knownPlatforms.includes(elementName)) {
-      if (elementName.toLowerCase() !== this.platform) {
+    if (knownPlatforms.includes(tagName)) {
+      if (tagName.toLowerCase() !== this.platform) {
         this.unsupportedPlatformTagCount--;
       }
       return;
@@ -143,16 +146,16 @@ export class ComponentParser {
       return;
     }
 
-    const parentIndex: number = this.parentIndices[this.parentIndices.length - 1] ?? -1;
-    if (parentIndex >= 0) {
+    const parent: ParentInfo = this.parents[this.parents.length - 1];
+    if (parent != null) {
       const complexProperty = this.complexProperties[this.complexProperties.length - 1];
 
-      if (elementName === MULTI_TEMPLATE_TAG) {
-        if (complexProperty && complexProperty.parentIndex == parentIndex) {
+      if (tagName === MULTI_TEMPLATE_TAG) {
+        if (complexProperty && complexProperty.parentIndex == parent.index) {
           this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; }},` : 'return null; }},';
           complexProperty.templateViewIndex = this.treeIndex;
         }
-      } else if (this.isComplexProperty(elementName)) {
+      } else if (this.isComplexProperty(tagName)) {
         if (complexProperty) {
           if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
             this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; };` : 'return null; };';
@@ -160,17 +163,17 @@ export class ComponentParser {
             this.body += '];';
           } else {
             // If parent is AddArrayFromBuilder call the interface method to populate the array property
-            this.body += `${ELEMENT_PREFIX}${parentIndex}._addArrayFromBuilder && ${ELEMENT_PREFIX}${parentIndex}._addArrayFromBuilder('${complexProperty.name}', [${complexProperty.elementReferences.join(', ')}]);`;
+            this.body += `${ELEMENT_PREFIX}${parent.index}._addArrayFromBuilder && ${ELEMENT_PREFIX}${parent.index}._addArrayFromBuilder('${complexProperty.name}', [${complexProperty.elementReferences.join(', ')}]);`;
             complexProperty.elementReferences = [];
           }
 
-          this.body += `/* ${elementName} - end */`;
+          this.body += `/* ${tagName} - end */`;
           // Remove the last complexProperty from the complexProperties collection (move to the previous complexProperty scope)
           this.complexProperties.pop();
         }
       } else {
         // Remove the last parent from the parents collection (move to the previous parent scope)
-        this.parentIndices.pop();
+        this.parents.pop();
       }
     }
   }
@@ -200,17 +203,17 @@ export class ComponentParser {
   private applyComponentAttributes(attributes) {
     const entries = Object.entries(attributes) as any;
     for (const [name, value] of entries) {
-      const { local, prefix } = this.getPrefixAndLocalByName(name);
+      const [ propertyName, prefix ] = this.getLocalAndPrefixByName(name);
 
       // Platform-based attributes
       if (knownPlatforms.includes(prefix.toLowerCase()) && prefix.toLowerCase() !== this.platform.toLowerCase()) {
         continue;
       }
 
-      // This is necessary for proper string escape
-      let propertyName = local;
-      const attrValue = value.replaceAll('\'', '\\\'');
       let instanceReference = `${ELEMENT_PREFIX}${this.treeIndex}`;
+      let newPropertyName = propertyName;
+      // This is necessary for proper string escape
+      const attrValue = value.replaceAll('\'', '\\\'');
 
       if (propertyName.indexOf('.') !== -1) {
         const properties = propertyName.split('.');
@@ -218,10 +221,10 @@ export class ComponentParser {
         for (let i = 0, length = properties.length - 1; i < length; i++) {
           instanceReference += `?.${properties[i]}`;
         }
-        propertyName = properties[properties.length - 1];
+        newPropertyName = properties[properties.length - 1];
       }
 
-      this.body += `${instanceReference} && setPropertyValue(${instanceReference}, null, moduleExports, '${propertyName}', '${attrValue}');`;
+      this.body += `${instanceReference} && setPropertyValue(${instanceReference}, null, moduleExports, '${newPropertyName}', '${attrValue}');`;
     }
   }
 
@@ -271,7 +274,7 @@ export class ComponentParser {
      */
     const entries = Object.entries(attributes) as any;
     for (const [name, value] of entries) {
-      const { local, prefix } = this.getPrefixAndLocalByName(name);
+      const [ propertyName, prefix ] = this.getLocalAndPrefixByName(name);
 
       if (prefix === 'xmlns') {
         this.resolvedRequests.push(value);
@@ -280,7 +283,7 @@ export class ComponentParser {
 
         // Register module using resolve path as key and overwrite old registration if any
         this.head += `global.registerModule('${resolvedPath}', () => require('${value}'));`;
-        this.body += `global.xmlCompiler.loadCustomModule('${local}', '${resolvedPath}', '${ext}', customModules);`;
+        this.body += `global.xmlCompiler.loadCustomModule('${propertyName}', '${resolvedPath}', '${ext}', customModules);`;
 
         // This was handled here, so remove it from attributes
         delete attributes[name];
@@ -288,7 +291,7 @@ export class ComponentParser {
     }
   }
 
-  private getPrefixAndLocalByName(name: string): PrefixedReference {
+  private getLocalAndPrefixByName(name: string): string[] {
     const splitName = name.split(':');
 
     let prefix;
@@ -301,10 +304,10 @@ export class ComponentParser {
       local = splitName[0];
     }
 
-    return {
+    return [
       local,
       prefix
-    };
+    ];
   }
 
   private getResolvedPath(uri: string): string {
