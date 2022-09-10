@@ -75,9 +75,9 @@ export class ComponentParser {
     if (elementName === MULTI_TEMPLATE_TAG) {
       const complexProperty = this.complexProperties[this.complexProperties.length - 1];
       if (parentIndex >= 0 && complexProperty && complexProperty.parentIndex == parentIndex) {
-        if (attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE]) {
+        if (MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes) {
           // This is necessary for proper string escape
-          const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].value.replaceAll('\'', '\\\'');
+          const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].replaceAll('\'', '\\\'');
           this.body += `{ key: '${attrValue}', createView: () => {`;
         } else {
           // eslint-disable-next-line no-console
@@ -221,8 +221,8 @@ export class ComponentParser {
     if (this.treeIndex == 0) {
       // Script
 
-      if (attributes[CODE_FILE]) {
-        const attrValue = attributes[CODE_FILE].value;
+      if (CODE_FILE in attributes) {
+        const attrValue = attributes[CODE_FILE];
         this.resolvedRequests.push(attrValue);
 
         const resolvedPath = this.getResolvedPath(attrValue);
@@ -234,8 +234,8 @@ export class ComponentParser {
       }
 
       // Style
-      if (attributes[CSS_FILE]) {
-        const attrValue = attributes[CSS_FILE].value;
+      if (CSS_FILE in attributes) {
+        const attrValue = attributes[CSS_FILE];
         this.resolvedRequests.push(attrValue);
 
         const resolvedPath = this.getResolvedPath(attrValue);
