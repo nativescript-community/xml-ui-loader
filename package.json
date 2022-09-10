@@ -10,7 +10,7 @@
     "build": "npm run lint && tsc",
     "convert": "node tools/convert.js",
     "lint": "eslint ./src --ext .ts",
-    "prepack": "npm run build",
+    "prepack": "rm *.tgz && npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
