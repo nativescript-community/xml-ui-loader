@@ -20,6 +20,11 @@ interface ComplexProperty {
   templateViewIndex?: number;
 }
 
+interface PrefixedReference {
+  local: string;
+  prefix: string;
+}
+
 export class ComponentParser {
   private parentIndices = new Array<number>();
   private complexProperties = new Array<ComplexProperty>();
@@ -50,7 +55,10 @@ export class ComponentParser {
     this.platform = platform;
   }
 
-  public handleOpenTag(elementName: string, prefix: string, attributes) {
+  public handleOpenTag(tagName: string, attributes) {
+    const { local, prefix } = this.getPrefixAndLocalByName(tagName);
+    const elementName = local;
+
     // Platform tags
     if (knownPlatforms.includes(elementName)) {
       if (elementName.toLowerCase() !== this.platform) {
@@ -113,7 +121,10 @@ export class ComponentParser {
     }
   }
 
-  public handleCloseTag(elementName: string) {
+  public handleCloseTag(tagName: string) {
+    const { local } = this.getPrefixAndLocalByName(tagName);
+    const elementName = local;
+
     // Platform tags
     if (knownPlatforms.includes(elementName)) {
       if (elementName.toLowerCase() !== this.platform) {
@@ -177,12 +188,9 @@ export class ComponentParser {
   }
 
   private applyComponentAttributes(attributes) {
-    const attributeData: any[] = Object.values(attributes);
-    for (const { local, prefix, value } of attributeData) {
-      // Namespaces are not regarded as properties
-      if (prefix === 'xmlns') {
-        continue;
-      }
+    const entries = Object.entries(attributes) as any;
+    for (const [name, value] of entries) {
+      const { local, prefix } = this.getPrefixAndLocalByName(name);
 
       // Platform-based attributes
       if (knownPlatforms.includes(prefix.toLowerCase()) && prefix.toLowerCase() !== this.platform.toLowerCase()) {
@@ -241,15 +249,21 @@ export class ComponentParser {
   }
 
   private checkForNamespaces(attributes) {
-    const attributeData: any[] = Object.values(attributes);
+    // Ignore this one
+    if ('xmlns' in attributes) {
+      delete attributes['xmlns'];
+    }
 
     /**
      * By default, virtual-entry-javascript registers all application js, xml, and css files as modules.
      * Registering namespaces will ensure node modules are also included in module register.
      * However, we have to ensure that the resolved path of files is used as module key so that module-name-resolver works properly.
      */
-    for (const { local, prefix, value } of attributeData) {
-      if (local && prefix === 'xmlns') {
+    const entries = Object.entries(attributes) as any;
+    for (const [name, value] of entries) {
+      const { local, prefix } = this.getPrefixAndLocalByName(name);
+
+      if (prefix === 'xmlns') {
         this.resolvedRequests.push(value);
         const resolvedPath = this.getResolvedPath(value);
         const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
@@ -257,8 +271,30 @@ export class ComponentParser {
         // Register module using resolve path as key and overwrite old registration if any
         this.head += `global.registerModule('${resolvedPath}', () => require('${value}'));`;
         this.body += `global.xmlCompiler.loadCustomModule('${local}', '${resolvedPath}', '${ext}', customModules);`;
+
+        // This was handled here, so remove it from attributes
+        delete attributes[name];
       }
     }
+  }
+
+  private getPrefixAndLocalByName(name: string): PrefixedReference {
+    const splitName = name.split(':');
+
+    let prefix;
+    let local;
+    if (splitName.length > 1) {
+      prefix = splitName[0];
+      local = splitName[1];
+    } else {
+      prefix = '';
+      local = splitName[0];
+    }
+
+    return {
+      local,
+      prefix
+    };
   }
 
   private getResolvedPath(uri: string): string {

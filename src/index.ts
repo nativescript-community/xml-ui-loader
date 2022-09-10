@@ -1,6 +1,6 @@
+import * as htmlparser2 from 'htmlparser2';
 import { js as beautify } from 'js-beautify';
 import { relative } from 'path';
-import { parser } from 'sax';
 import { promisify } from 'util';
 import { ComponentParser } from './component-parser';
 
@@ -19,32 +19,31 @@ async function parseXMLTree(content: string) {
   const moduleRelativePath = relative(appPath, this.resourcePath);
   const resolveAsync = promisify(this.resolve);
 
-  const xmlParser = parser(true, { xmlns: true });
   const componentParser = new ComponentParser(moduleRelativePath, platform);
 
   let needsCompilation = true;
 
-  // Register ios and android prefixes as namespaces to avoid "unbound xml namespace" errors
-  xmlParser.ns['ios'] = xmlParser.ns['android'] = xmlParser.ns['desktop'] = xmlParser.ns['web'] = 'http://schemas.nativescript.org/tns.xsd';
-
-  xmlParser.onopentag = (node) => {
-    needsCompilation && componentParser.handleOpenTag(node.local, node.prefix, node.attributes);
-  };
-  xmlParser.onprocessinginstruction = (node) => {
-    if (node.name == 'xml') {
-      needsCompilation = false;
+  const xmlParser = new htmlparser2.Parser({
+    onopentag(tagName, attributes) {
+      componentParser.handleOpenTag(tagName, attributes);
+    },
+    onprocessinginstruction(name) {
+      if (name == '?xml') {
+        needsCompilation = false;
+        xmlParser.reset();
+      }
+    },
+    onclosetag(tagName) {
+      componentParser.handleCloseTag(tagName);
+    },
+    onerror(err) {
+      throw err;
     }
-  };
-  xmlParser.onclosetag = (elementName) => {
-    needsCompilation && componentParser.handleCloseTag(elementName);
-  };
-  xmlParser.onerror = (err) => {
-    // Allow using ampersand
-    if (err.message.includes('Invalid character') && err.message.includes('Char: &')) {
-      xmlParser.error = null;
-    }
-  };
-  xmlParser.write(content).close();
+  }, {
+    xmlMode: true
+  });
+  xmlParser.write(content);
+  xmlParser.end();
 
   if (!needsCompilation) {
     // escape special whitespace characters
