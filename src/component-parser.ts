@@ -77,7 +77,7 @@ export class ComponentParser {
             const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].replaceAll('\'', '\\\'');
             this.body += `{ key: '${attrValue}', createView: () => {`;
           } else {
-            throw new Error(`Found template without key inside '${complexProperty.name}'`);
+            throw new Error(`Found template without key inside '${parent.tagName}.${complexProperty.name}'`);
           }
         }
       } else {
