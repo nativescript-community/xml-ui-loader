@@ -1,6 +1,5 @@
 import { pascalCase } from 'change-case';
 import { join, parse } from 'path';
-import { isString } from './helpers/types';
 
 const ELEMENT_PREFIX = 'el';
 const CODE_FILE = 'codeFile';
@@ -83,14 +82,15 @@ export class ComponentParser {
           }
         }
       } else {
-        throw new Error(`No parent found for template '${tagName}'`);
+        throw new Error(`No parent found for keyed '${tagName}'`);
       }
     } else if (this.isComplexProperty(tagName)) {
       if (parent != null) {
-        if (tagName == parent.tagName) {
+        const [ parentTagName, propertyName ] = tagName.split('.');
+        if (parent.tagName == parentTagName) {
           const complexProperty: ComplexProperty = {
             parentIndex: parent.index,
-            name: this.getComplexPropertyName(tagName),
+            name: propertyName,
             elementReferences: [],
             templateViewIndex: this.treeIndex
           };
@@ -108,7 +108,7 @@ export class ComponentParser {
           throw new Error(`Property '${tagName}' is not suitable for parent '${parent.tagName}'`);
         }
       } else {
-        throw new Error(`No parent found for template '${tagName}'`);
+        throw new Error(`No parent found for complex property '${tagName}'`);
       }
     } else {
       const [ elementName, prefix ] = this.getLocalAndPrefixByName(tagName);
@@ -330,18 +330,7 @@ export class ComponentParser {
     }
   }
 
-  private getComplexPropertyName(fullName: string): string {
-    let name: string;
-
-    if (isString(fullName)) {
-      const names = fullName.split('.');
-      name = names[names.length - 1];
-    }
-
-    return name;
-  }
-
   private isComplexProperty(name: string): boolean {
-    return isString(name) && name.indexOf('.') !== -1;
+    return name.indexOf('.') !== -1;
   }
 }
