@@ -112,7 +112,6 @@ export class ComponentParser {
     } else {
       const [ elementName, prefix ] = this.getLocalAndPrefixByName(tagName);
 
-      this.checkForNamespaces(attributes);
       this.buildComponent(elementName, prefix, attributes);
 
       if (parent != null) {
@@ -199,35 +198,47 @@ export class ComponentParser {
     `;
   }
 
-  private applyComponentAttributes(attributes) {
+  private getPropertyCode(propertyName, propertyValue) {
+    let instanceReference = `${ELEMENT_PREFIX}${this.treeIndex}`;
+    // This is necessary for proper string escape
+    const attrValue = propertyValue.replaceAll('\'', '\\\'');
+
+    if (propertyName.indexOf('.') !== -1) {
+      const properties = propertyName.split('.');
+
+      for (let i = 0, length = properties.length - 1; i < length; i++) {
+        instanceReference += `?.${properties[i]}`;
+      }
+      propertyName = properties[properties.length - 1];
+    }
+
+    return `${instanceReference} && setPropertyValue(${instanceReference}, null, moduleExports, '${propertyName}', '${attrValue}');`;
+  }
+
+  private buildComponent(elementName: string, prefix: string, attributes) {
+    let propertyContent: string = '';
+
+    // Ignore this one
+    if ('xmlns' in attributes) {
+      delete attributes['xmlns'];
+    }
+
     const entries = Object.entries(attributes) as any;
     for (const [name, value] of entries) {
       const [ propertyName, prefix ] = this.getLocalAndPrefixByName(name);
+      if (prefix === 'xmlns') {
+        this.registerNamespace(propertyName, value);
+        continue;
+      }
 
       // Platform-based attributes
       if (KNOWN_PLATFORMS.includes(prefix.toLowerCase()) && prefix.toLowerCase() !== this.platform.toLowerCase()) {
         continue;
       }
 
-      let instanceReference = `${ELEMENT_PREFIX}${this.treeIndex}`;
-      let newPropertyName = propertyName;
-      // This is necessary for proper string escape
-      const attrValue = value.replaceAll('\'', '\\\'');
-
-      if (propertyName.indexOf('.') !== -1) {
-        const properties = propertyName.split('.');
-
-        for (let i = 0, length = properties.length - 1; i < length; i++) {
-          instanceReference += `?.${properties[i]}`;
-        }
-        newPropertyName = properties[properties.length - 1];
-      }
-
-      this.body += `${instanceReference} && setPropertyValue(${instanceReference}, null, moduleExports, '${newPropertyName}', '${attrValue}');`;
+      propertyContent += this.getPropertyCode(propertyName, value);
     }
-  }
 
-  private buildComponent(elementName: string, prefix: string, attributes) {
     this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = global.xmlCompiler.newInstance({elementName: '${elementName}', prefix: '${prefix}', moduleExports, uiCoreModules, customModules});`;
 
     if (this.treeIndex == 0) {
@@ -256,37 +267,24 @@ export class ComponentParser {
       }
       this.body += `resolvedCssModuleName && ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);`;
     }
-    this.applyComponentAttributes(attributes);
+
+    // Apply properties to instance
+    this.body += propertyContent;
   }
 
-  private checkForNamespaces(attributes) {
-    // Ignore this one
-    if ('xmlns' in attributes) {
-      delete attributes['xmlns'];
-    }
-
+  private registerNamespace(propertyName, propertyValue) {
     /**
      * By default, virtual-entry-javascript registers all application js, xml, and css files as modules.
      * Registering namespaces will ensure node modules are also included in module register.
      * However, we have to ensure that the resolved path of files is used as module key so that module-name-resolver works properly.
      */
-    const entries = Object.entries(attributes) as any;
-    for (const [name, value] of entries) {
-      const [ propertyName, prefix ] = this.getLocalAndPrefixByName(name);
+    this.resolvedRequests.push(propertyValue);
+    const resolvedPath = this.getResolvedPath(propertyValue);
+    const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
 
-      if (prefix === 'xmlns') {
-        this.resolvedRequests.push(value);
-        const resolvedPath = this.getResolvedPath(value);
-        const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
-
-        // Register module using resolve path as key and overwrite old registration if any
-        this.head += `global.registerModule('${resolvedPath}', () => require('${value}'));`;
-        this.body += `global.xmlCompiler.loadCustomModule('${propertyName}', '${resolvedPath}', '${ext}', customModules);`;
-
-        // This was handled here, so remove it from attributes
-        delete attributes[name];
-      }
-    }
+    // Register module using resolve path as key and overwrite old registration if any
+    this.head += `global.registerModule('${resolvedPath}', () => require('${propertyValue}'));`;
+    this.body += `global.xmlCompiler.loadCustomModule('${propertyName}', '${resolvedPath}', '${ext}', customModules);`;
   }
 
   private getLocalAndPrefixByName(name: string): string[] {
