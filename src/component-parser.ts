@@ -9,8 +9,8 @@ const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
 
 const KNOWN_TEMPLATE_SUFFIX = 'Template';
 const KNOWN_MULTI_TEMPLATE_SUFFIX = 'Templates';
-const knownCollections: string[] = ['items', 'spans', 'actionItems'];
-const knownPlatforms: string[] = ['android', 'ios', 'desktop'];
+const KNOWN_COLLECTIONS: string[] = ['items', 'spans', 'actionItems'];
+const KNOWN_PLATFORMS: string[] = ['android', 'ios', 'desktop'];
 
 interface ComplexProperty {
   parentIndex: number;
@@ -56,7 +56,7 @@ export class ComponentParser {
 
   public handleOpenTag(tagName: string, attributes) {
     // Platform tags
-    if (knownPlatforms.includes(tagName)) {
+    if (KNOWN_PLATFORMS.includes(tagName)) {
       if (tagName.toLowerCase() !== this.platform) {
         this.unsupportedPlatformTagCount++;
       }
@@ -135,7 +135,7 @@ export class ComponentParser {
 
   public handleCloseTag(tagName: string) {
     // Platform tags
-    if (knownPlatforms.includes(tagName)) {
+    if (KNOWN_PLATFORMS.includes(tagName)) {
       if (tagName.toLowerCase() !== this.platform) {
         this.unsupportedPlatformTagCount--;
       }
@@ -205,7 +205,7 @@ export class ComponentParser {
       const [ propertyName, prefix ] = this.getLocalAndPrefixByName(name);
 
       // Platform-based attributes
-      if (knownPlatforms.includes(prefix.toLowerCase()) && prefix.toLowerCase() !== this.platform.toLowerCase()) {
+      if (KNOWN_PLATFORMS.includes(prefix.toLowerCase()) && prefix.toLowerCase() !== this.platform.toLowerCase()) {
         continue;
       }
 
@@ -314,7 +314,7 @@ export class ComponentParser {
 
   private addToComplexProperty(parentIndex, complexProperty: ComplexProperty) {
     // If property name is a known collection, we populate array with elements
-    if (knownCollections.includes(complexProperty.name)) {
+    if (KNOWN_COLLECTIONS.includes(complexProperty.name)) {
       complexProperty.elementReferences.push(`${ELEMENT_PREFIX}${this.treeIndex}`);
     } else if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX) || complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
       // Do nothing
