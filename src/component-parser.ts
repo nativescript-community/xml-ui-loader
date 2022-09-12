@@ -161,7 +161,7 @@ export class ComponentParser {
           } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
             this.body += '];';
           } else {
-            // If parent is AddArrayFromBuilder call the interface method to populate the array property
+            // If parent implements _addArrayFromBuilder, call the method to populate the array property
             this.body += `${ELEMENT_PREFIX}${parent.index}._addArrayFromBuilder && ${ELEMENT_PREFIX}${parent.index}._addArrayFromBuilder('${complexProperty.name}', [${complexProperty.elementReferences.join(', ')}]);`;
             complexProperty.elementReferences = [];
           }
@@ -232,7 +232,6 @@ export class ComponentParser {
 
     if (this.treeIndex == 0) {
       // Script
-
       if (CODE_FILE in attributes) {
         const attrValue = attributes[CODE_FILE];
         this.resolvedRequests.push(attrValue);
@@ -314,13 +313,13 @@ export class ComponentParser {
   }
 
   private addToComplexProperty(parentIndex, complexProperty: ComplexProperty) {
-    // If property name is known collection we populate array with elements
+    // If property name is a known collection, we populate array with elements
     if (knownCollections.includes(complexProperty.name)) {
       complexProperty.elementReferences.push(`${ELEMENT_PREFIX}${this.treeIndex}`);
     } else if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX) || complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
       // Do nothing
     } else {
-      // Add child parent else simply assign it as a value
+      // Add child to parent else simply assign it as a value
       this.body += `if (${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder) {
         ${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder('${complexProperty.name}', ${ELEMENT_PREFIX}${this.treeIndex});
       } else {
