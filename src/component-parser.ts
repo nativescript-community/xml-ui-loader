@@ -49,7 +49,8 @@ export class ComponentParser {
     this.appendImports();
 
     this.body += `export default class ${componentName} {
-      constructor() {`;
+      constructor() {
+        var moduleExports;`;
 
     this.platform = platform;
   }
@@ -242,17 +243,17 @@ export class ComponentParser {
     this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = global.xmlCompiler.newInstance({elementName: '${elementName}', prefix: '${prefix}', moduleExports, uiCoreModules, customModules});`;
 
     if (this.treeIndex == 0) {
-      // Script
+      // Script (variable moduleExports is defined at the beginning of constructor)
       if (CODE_FILE in attributes) {
         const attrValue = attributes[CODE_FILE];
         this.resolvedRequests.push(attrValue);
 
         const resolvedPath = this.getResolvedPath(attrValue);
         this.body += `var resolvedCodeModuleName = resolveModuleName('${resolvedPath}', '');`;
-        this.body += 'var moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : null;';
+        this.body += 'moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : null;';
       } else {
         this.body += `var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');
-        var moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : this.__fallbackModuleExports;`;
+        moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : this.__fallbackModuleExports;`;
       }
 
       // Style
