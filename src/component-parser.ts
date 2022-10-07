@@ -308,7 +308,7 @@ export class ComponentParser {
   }
 
   private getResolvedPath(uri: string): string {
-    return uri.startsWith('~/') ? uri.substr(2) : join(this.moduleDirPath, uri);
+    return uri.startsWith('~/') ? uri.substring(2) : join(this.moduleDirPath, uri);
   }
 
   private addToComplexProperty(parentIndex, complexProperty: ComplexProperty) {
