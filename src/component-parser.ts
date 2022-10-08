@@ -19,9 +19,18 @@ interface ComplexProperty {
   templateViewIndex?: number;
 }
 
+// Use hasOpenChildTag to check if parent tag is closing
 interface ParentInfo {
   index: number;
   tagName: string;
+  hasOpenChildTag: boolean;
+  children: Array<ElementInfo>;
+}
+
+interface ElementInfo {
+  index: number;
+  elementName: string;
+  prefix: string;
 }
 
 export class ComponentParser {
@@ -32,6 +41,7 @@ export class ComponentParser {
   // Keep counter for the case of platform tags being inside platform tags
   private unsupportedPlatformTagCount: number = 0;
 
+  private className: string;
   private moduleDirPath: string = '';
   private moduleRelativePath: string = '';
   private head: string = '';
@@ -41,14 +51,14 @@ export class ComponentParser {
 
   constructor(moduleRelativePath: string, platform: string) {
     const { dir, ext, name } = parse(moduleRelativePath);
-    const componentName = pascalCase(name);
 
+    this.className = pascalCase(name);
     this.moduleDirPath = dir;
     this.moduleRelativePath = moduleRelativePath.substring(0, moduleRelativePath.length - ext.length);
 
     this.appendImports();
 
-    this.body += `export default class ${componentName} {
+    this.body += `export default class ${this.className} {
       constructor() {
         var moduleExports;`;
 
@@ -116,18 +126,28 @@ export class ComponentParser {
       this.buildComponent(elementName, prefix, attributes);
 
       if (parent != null) {
+        parent.hasOpenChildTag = true;
+
         const complexProperty = this.complexProperties[this.complexProperties.length - 1];
         if (complexProperty && complexProperty.parentIndex == parent.index) {
-          // Add component to complex property of parent component
-          this.addToComplexProperty(parent.index, complexProperty);
+          // If property name is a known collection, we populate array with elements
+          if (KNOWN_COLLECTIONS.includes(complexProperty.name)) {
+            complexProperty.elementReferences.push(`${ELEMENT_PREFIX}${this.treeIndex}`);
+          }
         } else {
-          this.body += `${ELEMENT_PREFIX}${parent.index}._addChildFromBuilder && ${ELEMENT_PREFIX}${parent.index}._addChildFromBuilder('${elementName}', ${ELEMENT_PREFIX}${this.treeIndex});`;
+          parent.children.push({
+            index: this.treeIndex,
+            elementName,
+            prefix
+          });
         }
       }
 
       this.parents.push({
         index: this.treeIndex,
-        tagName
+        tagName,
+        hasOpenChildTag: false,
+        children: []
       });
       this.treeIndex++;
     }
@@ -145,7 +165,7 @@ export class ComponentParser {
       return;
     }
 
-    const parent: ParentInfo = this.parents[this.parents.length - 1];
+    let parent: ParentInfo = this.parents[this.parents.length - 1];
     if (parent != null) {
       const complexProperty = this.complexProperties[this.complexProperties.length - 1];
 
@@ -156,23 +176,33 @@ export class ComponentParser {
         }
       } else if (this.isComplexProperty(tagName)) {
         if (complexProperty) {
-          if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
-            this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; };` : 'return null; };';
-          } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
-            this.body += '];';
-          } else {
-            // If parent implements _addArrayFromBuilder, call the method to populate the array property
-            this.body += `${ELEMENT_PREFIX}${parent.index}._addArrayFromBuilder && ${ELEMENT_PREFIX}${parent.index}._addArrayFromBuilder('${complexProperty.name}', [${complexProperty.elementReferences.join(', ')}]);`;
-            complexProperty.elementReferences = [];
-          }
+          this.addToComplexProperty(parent, complexProperty);
 
           this.body += `/* ${tagName} - end */`;
           // Remove the last complexProperty from the complexProperties collection (move to the previous complexProperty scope)
           this.complexProperties.pop();
         }
       } else {
-        // Remove the last parent from the parents collection (move to the previous parent scope)
-        this.parents.pop();
+        // This tag is the parent so we proceed to handling its closing
+        if (this.isClosingParent(tagName, parent)) {
+          const element = parent;
+          if (element.children.length) {
+            this.body += `if (${ELEMENT_PREFIX}${element.index}._addChildFromBuilder) {`;
+            for (const child of element.children) {
+              this.body += `${ELEMENT_PREFIX}${element.index}._addChildFromBuilder('${child.elementName}', ${ELEMENT_PREFIX}${child.index});`;
+            }
+            this.body += '}';
+          }
+
+          // Remove node from the parents collection (move to the previous parent scope)
+          this.parents.pop();
+          parent = this.parents[this.parents.length - 1];
+        }
+
+        // If another parent exists, update open child tag flag
+        if (parent != null) {
+          parent.hasOpenChildTag = false;
+        }
       }
     }
   }
@@ -189,6 +219,10 @@ export class ComponentParser {
 
   public getOutput(): string {
     return this.head + this.body;
+  }
+
+  private isClosingParent(tagName, parent: ParentInfo): boolean {
+    return parent.tagName === tagName && !parent.hasOpenChildTag;
   }
 
   private appendImports() {
@@ -311,18 +345,23 @@ export class ComponentParser {
     return uri.startsWith('~/') ? uri.substring(2) : join(this.moduleDirPath, uri);
   }
 
-  private addToComplexProperty(parentIndex, complexProperty: ComplexProperty) {
-    // If property name is a known collection, we populate array with elements
-    if (KNOWN_COLLECTIONS.includes(complexProperty.name)) {
-      complexProperty.elementReferences.push(`${ELEMENT_PREFIX}${this.treeIndex}`);
-    } else if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX) || complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
-      // Do nothing
+  private addToComplexProperty(parent: ParentInfo, complexProperty: ComplexProperty) {
+    if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
+      this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; };` : 'return null; };';
+    } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
+      this.body += '];';
+    } else if (KNOWN_COLLECTIONS.includes(complexProperty.name)) {
+      // If parent implements _addArrayFromBuilder, call the method to populate the array property
+      if (complexProperty.elementReferences.length) {
+        this.body += `${ELEMENT_PREFIX}${parent.index}._addArrayFromBuilder && ${ELEMENT_PREFIX}${parent.index}._addArrayFromBuilder('${complexProperty.name}', [${complexProperty.elementReferences.join(', ')}]);`;
+        complexProperty.elementReferences = [];
+      }
     } else {
       // Add child to parent else simply assign it as a value
-      this.body += `if (${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder) {
-        ${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder('${complexProperty.name}', ${ELEMENT_PREFIX}${this.treeIndex});
+      this.body += `if (${ELEMENT_PREFIX}${parent.index}._addChildFromBuilder) {
+        ${ELEMENT_PREFIX}${parent.index}._addChildFromBuilder('${complexProperty.name}', ${ELEMENT_PREFIX}${this.treeIndex});
       } else {
-        ${ELEMENT_PREFIX}${parentIndex}['${complexProperty.name}'] = ${ELEMENT_PREFIX}${this.treeIndex};
+        ${ELEMENT_PREFIX}${parent.index}['${complexProperty.name}'] = ${ELEMENT_PREFIX}${this.treeIndex};
       }`;
     }
   }
