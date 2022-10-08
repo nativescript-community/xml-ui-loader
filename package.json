@@ -36,6 +36,8 @@
     "js-beautify": "^1.14.6"
   },
   "devDependencies": {
+    "@types/js-beautify": "^1.13.3",
+    "@types/node": "^18.8.3",
     "@typescript-eslint/eslint-plugin": "^5.35.1",
     "@typescript-eslint/parser": "^5.35.1",
     "eslint": "^8.23.0",
