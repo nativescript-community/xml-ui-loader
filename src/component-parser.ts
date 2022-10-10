@@ -19,9 +19,11 @@ interface ComplexProperty {
   templateViewIndex?: number;
 }
 
+// Use hasOpenChildTag to check if parent tag is closing
 interface ParentInfo {
   index: number;
   tagName: string;
+  hasOpenChildTag: boolean;
 }
 
 export class ComponentParser {
@@ -116,6 +118,8 @@ export class ComponentParser {
       this.buildComponent(elementName, prefix, attributes);
 
       if (parent != null) {
+        parent.hasOpenChildTag = true;
+
         const complexProperty = this.complexProperties[this.complexProperties.length - 1];
         if (complexProperty && complexProperty.parentIndex == parent.index) {
           // Add component to complex property of parent component
@@ -127,7 +131,8 @@ export class ComponentParser {
 
       this.parents.push({
         index: this.treeIndex,
-        tagName
+        tagName,
+        hasOpenChildTag: false
       });
       this.treeIndex++;
     }
@@ -145,7 +150,7 @@ export class ComponentParser {
       return;
     }
 
-    const parent: ParentInfo = this.parents[this.parents.length - 1];
+    let parent: ParentInfo = this.parents[this.parents.length - 1];
     if (parent != null) {
       const complexProperty = this.complexProperties[this.complexProperties.length - 1];
 
@@ -171,8 +176,17 @@ export class ComponentParser {
           this.complexProperties.pop();
         }
       } else {
-        // Remove the last parent from the parents collection (move to the previous parent scope)
-        this.parents.pop();
+        // This tag is the parent so we proceed to handling its closing
+        if (this.isClosingParent(tagName, parent)) {
+          // Remove node from the parents collection (move to the previous parent scope)
+          this.parents.pop();
+          parent = this.parents[this.parents.length - 1];
+        }
+
+        // If another parent exists, update open child tag flag
+        if (parent != null) {
+          parent.hasOpenChildTag = false;
+        }
       }
     }
   }
@@ -189,6 +203,10 @@ export class ComponentParser {
 
   public getOutput(): string {
     return this.head + this.body;
+  }
+
+  private isClosingParent(tagName, parent: ParentInfo): boolean {
+    return parent.tagName === tagName && !parent.hasOpenChildTag;
   }
 
   private appendImports() {
