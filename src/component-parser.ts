@@ -189,11 +189,11 @@ export class ComponentParser {
               if (openTagInfo.childIndices.length) {
                 const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
                 this.body += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder) {
-                  ${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder('${openTagInfo.childIndices}', [${viewReferences.join(', ')}]);
+                  ${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder('${openTagInfo.propertyName}', [${viewReferences.join(', ')}]);
                 } else if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {`;
 
-                for (const childIndex of openTagInfo.childIndices) {
-                  this.body += `${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder('${openTagInfo.childIndices}', ${ELEMENT_PREFIX}${childIndex});`;
+                for (const viewRef of viewReferences) {
+                  this.body += `${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder(${viewRef}.constructor.name, ${viewRef});`;
                 }
 
                 this.body += `} else {
