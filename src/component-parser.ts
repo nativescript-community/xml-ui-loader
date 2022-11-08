@@ -6,29 +6,31 @@ const CODE_FILE = 'codeFile';
 const CSS_FILE = 'cssFile';
 const MULTI_TEMPLATE_TAG = 'template';
 const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
-
 const KNOWN_TEMPLATE_SUFFIX = 'Template';
 const KNOWN_MULTI_TEMPLATE_SUFFIX = 'Templates';
-const KNOWN_COLLECTIONS: string[] = ['items', 'spans', 'actionItems'];
 const KNOWN_PLATFORMS: string[] = ['android', 'ios', 'desktop'];
 
-interface ComplexProperty {
-  parentIndex: number;
-  name: string;
-  elementReferences?: Array<string>;
-  templateViewIndex?: number;
+enum ElementType {
+  VIEW,
+  PROPERTY,
+  TEMPLATE,
+  TEMPLATE_ARRAY
 }
 
 // Use hasOpenChildTag to check if parent tag is closing
-interface ParentInfo {
+interface TagInfo {
   index: number;
   tagName: string;
+  propertyName?: string;
+  attributes: any;
+  type: ElementType;
+  childIndices: Array<number>;
+  keys: Array<string>;
   hasOpenChildTag: boolean;
 }
 
 export class ComponentParser {
-  private parents = new Array<ParentInfo>();
-  private complexProperties = new Array<ComplexProperty>();
+  private openTags = new Array<TagInfo>();
   private resolvedRequests = new Array<string>();
 
   // Keep counter for the case of platform tags being inside platform tags
@@ -39,7 +41,7 @@ export class ComponentParser {
   private head: string = '';
   private body: string = '';
   private platform: string;
-  private treeIndex: number = 0;
+  private treeIndex: number = -1;
 
   constructor(moduleRelativePath: string, platform: string) {
     const { dir, ext, name } = parse(moduleRelativePath);
@@ -68,74 +70,101 @@ export class ComponentParser {
     if (this.unsupportedPlatformTagCount > 0) {
       return;
     }
+    
+    const openTagInfo: TagInfo = this.openTags[this.openTags.length - 1];
 
-    const parent: ParentInfo = this.parents[this.parents.length - 1];
+    // Handle view property nesting
+    const isViewProperty: boolean = this.isViewProperty(tagName);
+    if (isViewProperty && openTagInfo?.type !== ElementType.VIEW) {
+      throw new Error(`Property '${tagName}' can only be nested inside a view tag. Parent tag: ${openTagInfo != null ? openTagInfo.tagName : 'None'}`);
+    }
 
-    if (tagName === MULTI_TEMPLATE_TAG) {
-      if (parent != null) {
-        const complexProperty = this.complexProperties[this.complexProperties.length - 1];
-        if (complexProperty && complexProperty.parentIndex == parent.index) {
-          if (MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes) {
-            // This is necessary for proper string escape
-            const attrValue = attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].replaceAll('\'', '\\\'');
-            this.body += `{ key: '${attrValue}', createView: () => {`;
-          } else {
-            throw new Error(`Found template without key inside '${parent.tagName}.${complexProperty.name}'`);
+    if (openTagInfo != null) {
+      switch (openTagInfo.type) {
+        case ElementType.TEMPLATE:
+          if (openTagInfo.childIndices.length) {
+            throw new Error(`Property '${openTagInfo.tagName}' does not accept more than a single child`);
           }
-        }
-      } else {
-        throw new Error(`No parent found for keyed '${tagName}'`);
+          break;
+        case ElementType.TEMPLATE_ARRAY:
+          if (tagName !== MULTI_TEMPLATE_TAG) {
+            throw new Error(`Property '${openTagInfo.tagName}' must be an array of templates`);
+          }
+          break;
+        default:
+          if (tagName === MULTI_TEMPLATE_TAG) {
+            const fullTagName = openTagInfo.type === ElementType.PROPERTY ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
+            throw new Error(`Template tags can only be nested inside template properties. Parent tag: ${fullTagName}`);
+          }
+          break;
       }
-    } else if (this.isComplexProperty(tagName)) {
-      if (parent != null) {
-        const [ parentTagName, propertyName ] = tagName.split('.');
-        if (parent.tagName == parentTagName) {
-          const complexProperty: ComplexProperty = {
-            parentIndex: parent.index,
-            name: propertyName,
-            elementReferences: [],
-            templateViewIndex: this.treeIndex
-          };
 
-          this.complexProperties.push(complexProperty);
+      openTagInfo.hasOpenChildTag = true;
+    }
 
-          this.body += `/* ${tagName} - start */`;
-          
-          if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
-            this.body += `${ELEMENT_PREFIX}${parent.index}.${complexProperty.name} = () => {`;
-          } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
-            this.body += `${ELEMENT_PREFIX}${parent.index}.${complexProperty.name} = [`;
-          }
+    let newTagInfo: TagInfo = {
+      index: -1,
+      tagName,
+      attributes,
+      type: null,
+      childIndices: [],
+      keys: [],
+      hasOpenChildTag: false
+    };
+
+    if (isViewProperty) {
+      const [ parentTagName, tagPropertyName ] = tagName.split('.');
+
+      if (openTagInfo != null && openTagInfo.tagName === parentTagName) {
+        newTagInfo.index = openTagInfo.index;
+        newTagInfo.tagName = parentTagName;
+        newTagInfo.propertyName = tagPropertyName;
+
+        if (tagPropertyName.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
+          newTagInfo.type = ElementType.TEMPLATE;
+          this.body += `var ${newTagInfo.propertyName}${openTagInfo.index}_${openTagInfo.childIndices.length} = () => {`;
+        } else if (tagPropertyName.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
+          newTagInfo.type = ElementType.TEMPLATE_ARRAY;
         } else {
-          throw new Error(`Property '${tagName}' is not suitable for parent '${parent.tagName}'`);
+          newTagInfo.type = ElementType.PROPERTY;
         }
       } else {
-        throw new Error(`No parent found for complex property '${tagName}'`);
+        throw new Error(`Property '${tagName}' is not suitable for parent '${openTagInfo.tagName}'`);
+      }
+    } else if (tagName === MULTI_TEMPLATE_TAG) {
+      if (openTagInfo != null) {
+        if (openTagInfo.type === ElementType.TEMPLATE_ARRAY) {
+          newTagInfo.index = openTagInfo.index;
+          newTagInfo.type = ElementType.TEMPLATE;
+
+          const templateIndex = openTagInfo.childIndices.length;
+          // This is necessary for proper string escape
+          const attrValue = MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes ? attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].replaceAll('\'', '\\\'') : '';
+
+          this.body += `var ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex} = () => {`;
+          openTagInfo.keys.push(attrValue);
+          openTagInfo.childIndices.push(templateIndex);
+        } else {
+          // Ignore tag if it's used in the wrong place
+          newTagInfo = null;
+        }
+      } else {
+        throw new Error('Failed to parse template. No parent found');
       }
     } else {
       const [ elementName, prefix ] = this.getLocalAndPrefixByName(tagName);
 
+      this.treeIndex++;
+      
       this.buildComponent(elementName, prefix, attributes);
 
-      if (parent != null) {
-        parent.hasOpenChildTag = true;
+      newTagInfo.index = this.treeIndex;
+      newTagInfo.type = ElementType.VIEW;
 
-        const complexProperty = this.complexProperties[this.complexProperties.length - 1];
-        if (complexProperty && complexProperty.parentIndex == parent.index) {
-          // Add component to complex property of parent component
-          this.addToComplexProperty(parent.index, complexProperty);
-        } else {
-          this.body += `${ELEMENT_PREFIX}${parent.index}._addChildFromBuilder && ${ELEMENT_PREFIX}${parent.index}._addChildFromBuilder('${elementName}', ${ELEMENT_PREFIX}${this.treeIndex});`;
-        }
-      }
-
-      this.parents.push({
-        index: this.treeIndex,
-        tagName,
-        hasOpenChildTag: false
-      });
-      this.treeIndex++;
+      openTagInfo != null && openTagInfo.childIndices.push(this.treeIndex);
     }
+
+    newTagInfo != null && this.openTags.push(newTagInfo);
   }
 
   public handleCloseTag(tagName: string) {
@@ -150,43 +179,66 @@ export class ComponentParser {
       return;
     }
 
-    let parent: ParentInfo = this.parents[this.parents.length - 1];
-    if (parent != null) {
-      const complexProperty = this.complexProperties[this.complexProperties.length - 1];
+    let openTagInfo: TagInfo = this.openTags[this.openTags.length - 1];
+    if (openTagInfo != null) {
+      // Current tag is a closing tag
+      if (this.isClosingTag(tagName, openTagInfo)) {
+        if (openTagInfo.propertyName != null) {
+          switch (openTagInfo.type) {
+            case ElementType.PROPERTY: {
+              if (openTagInfo.childIndices.length) {
+                const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
+                this.body += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder) {
+                  ${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder('${openTagInfo.childIndices}', [${viewReferences.join(', ')}]);
+                } else if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {`;
 
-      if (tagName === MULTI_TEMPLATE_TAG) {
-        if (complexProperty && complexProperty.parentIndex == parent.index) {
-          this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; }},` : 'return null; }},';
-          complexProperty.templateViewIndex = this.treeIndex;
-        }
-      } else if (this.isComplexProperty(tagName)) {
-        if (complexProperty) {
-          if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
-            this.body += this.treeIndex > complexProperty.templateViewIndex ? `return ${ELEMENT_PREFIX}${complexProperty.templateViewIndex}; };` : 'return null; };';
-          } else if (complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
-            this.body += '];';
-          } else {
-            // If parent implements _addArrayFromBuilder, call the method to populate the array property
-            this.body += `${ELEMENT_PREFIX}${parent.index}._addArrayFromBuilder && ${ELEMENT_PREFIX}${parent.index}._addArrayFromBuilder('${complexProperty.name}', [${complexProperty.elementReferences.join(', ')}]);`;
-            complexProperty.elementReferences = [];
+                for (const childIndex of openTagInfo.childIndices) {
+                  this.body += `${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder('${openTagInfo.childIndices}', ${ELEMENT_PREFIX}${childIndex});`;
+                }
+
+                this.body += `} else {
+                  throw new Error('Component ${tagName} has no support for nesting views');
+                }`;
+              }
+              break;
+            }
+            case ElementType.TEMPLATE: {
+              const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
+              this.body += (childIndex != null ? `return ${ELEMENT_PREFIX}${childIndex};` : 'return null;') + '};';
+              break;
+            }
+            case ElementType.TEMPLATE_ARRAY: {
+              const keyedTemplates = openTagInfo.childIndices.map((templateIndex: number, index: number) => `{
+                ${MULTI_TEMPLATE_KEY_ATTRIBUTE}: '${openTagInfo.keys[index]}',
+                createView: ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex}
+              }`);
+              this.body += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = [${keyedTemplates.join(', ')}];`;
+              break;
+            }
+            default:
+              throw new Error(`Invalid closing property tag '${openTagInfo.tagName}'`);
           }
+        } else if (tagName === MULTI_TEMPLATE_TAG) {
+          const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
+          this.body += (childIndex != null ? `return ${ELEMENT_PREFIX}${childIndex};` : 'return null;') + '};';
+        } else {
+          if (openTagInfo.childIndices.length) {
+            this.body += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {`;
+            for (const childIndex of openTagInfo.childIndices) {
+              this.body += `${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder(${ELEMENT_PREFIX}${childIndex}.constructor.name, ${ELEMENT_PREFIX}${childIndex});`;
+            }
+            this.body += '}';
+          }
+        }
 
-          this.body += `/* ${tagName} - end */`;
-          // Remove the last complexProperty from the complexProperties collection (move to the previous complexProperty scope)
-          this.complexProperties.pop();
-        }
-      } else {
-        // This tag is the parent so we proceed to handling its closing
-        if (this.isClosingParent(tagName, parent)) {
-          // Remove node from the parents collection (move to the previous parent scope)
-          this.parents.pop();
-          parent = this.parents[this.parents.length - 1];
-        }
+        // Remove tag from the openTags collection
+        this.openTags.pop();
+        openTagInfo = this.openTags[this.openTags.length - 1];
+      }
 
-        // If another parent exists, update open child tag flag
-        if (parent != null) {
-          parent.hasOpenChildTag = false;
-        }
+      // Update open child tag flag for current open tag
+      if (openTagInfo != null) {
+        openTagInfo.hasOpenChildTag = false;
       }
     }
   }
@@ -205,8 +257,8 @@ export class ComponentParser {
     return this.head + this.body;
   }
 
-  private isClosingParent(tagName, parent: ParentInfo): boolean {
-    return parent.tagName === tagName && !parent.hasOpenChildTag;
+  private isClosingTag(tagName, openTagInfo: TagInfo): boolean {
+    return openTagInfo.tagName === tagName && !openTagInfo.hasOpenChildTag;
   }
 
   private appendImports() {
@@ -258,8 +310,6 @@ export class ComponentParser {
       propertyContent += this.getPropertyCode(propertyName, value);
     }
 
-    this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = global.xmlCompiler.newInstance({elementName: '${elementName}', prefix: '${prefix}', moduleExports, uiCoreModules, customModules});`;
-
     if (this.treeIndex == 0) {
       // Script (variable moduleExports is defined at the beginning of constructor)
       if (CODE_FILE in attributes) {
@@ -284,6 +334,10 @@ export class ComponentParser {
       } else {
         this.body += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');`;
       }
+    }
+
+    this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = global.xmlCompiler.newInstance({elementName: '${elementName}', prefix: '${prefix}', moduleExports, uiCoreModules, customModules});`;
+    if (this.treeIndex == 0) {
       this.body += `resolvedCssModuleName && ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);`;
     }
 
@@ -329,23 +383,7 @@ export class ComponentParser {
     return uri.startsWith('~/') ? uri.substring(2) : join(this.moduleDirPath, uri);
   }
 
-  private addToComplexProperty(parentIndex, complexProperty: ComplexProperty) {
-    // If property name is a known collection, we populate array with elements
-    if (KNOWN_COLLECTIONS.includes(complexProperty.name)) {
-      complexProperty.elementReferences.push(`${ELEMENT_PREFIX}${this.treeIndex}`);
-    } else if (complexProperty.name.endsWith(KNOWN_TEMPLATE_SUFFIX) || complexProperty.name.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
-      // Do nothing
-    } else {
-      // Add child to parent else simply assign it as a value
-      this.body += `if (${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder) {
-        ${ELEMENT_PREFIX}${parentIndex}._addChildFromBuilder('${complexProperty.name}', ${ELEMENT_PREFIX}${this.treeIndex});
-      } else {
-        ${ELEMENT_PREFIX}${parentIndex}['${complexProperty.name}'] = ${ELEMENT_PREFIX}${this.treeIndex};
-      }`;
-    }
-  }
-
-  private isComplexProperty(name: string): boolean {
-    return name.indexOf('.') !== -1;
+  private isViewProperty(tagName: string): boolean {
+    return tagName.indexOf('.') !== -1;
   }
 }
