@@ -145,7 +145,7 @@ export class ComponentParser {
           openTagInfo.keys.push(attrValue);
           openTagInfo.childIndices.push(templateIndex);
         } else {
-          // Ignore tag if it's used in the wrong place
+          // Ignore tag if it's nested inside a single-template property
           newTagInfo = null;
         }
       } else {
