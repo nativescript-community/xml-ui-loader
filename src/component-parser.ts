@@ -265,7 +265,7 @@ export class ComponentParser {
   }
 
   private isClosingTag(closingTagName: string, openTagInfo: TagInfo): boolean {
-    const tagName = openTagInfo.propertyName != null ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
+    const tagName = openTagInfo.type === ElementType.PROPERTY ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
     return tagName === closingTagName && !openTagInfo.hasOpenChildTag;
   }
 
