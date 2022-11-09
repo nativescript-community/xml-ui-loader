@@ -9,6 +9,7 @@ const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
 const KNOWN_TEMPLATE_SUFFIX = 'Template';
 const KNOWN_MULTI_TEMPLATE_SUFFIX = 'Templates';
 const KNOWN_PLATFORMS: string[] = ['android', 'ios', 'desktop'];
+const KNOWN_VIEW_COLLECTIONS: string[] = ['items', 'spans', 'actionItems'];
 
 enum ElementType {
   VIEW,
@@ -122,7 +123,7 @@ export class ComponentParser {
 
         if (tagPropertyName.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE;
-          this.body += `var ${newTagInfo.propertyName}${openTagInfo.index}_${openTagInfo.childIndices.length} = () => {`;
+          this.body += `var ${newTagInfo.propertyName}${openTagInfo.index} = () => {`;
         } else if (tagPropertyName.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE_ARRAY;
         } else {
@@ -187,24 +188,30 @@ export class ComponentParser {
           switch (openTagInfo.type) {
             case ElementType.PROPERTY: {
               if (openTagInfo.childIndices.length) {
-                const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
-                this.body += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder) {
-                  ${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder('${openTagInfo.propertyName}', [${viewReferences.join(', ')}]);
-                } else if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {`;
+                if (KNOWN_VIEW_COLLECTIONS.includes(openTagInfo.propertyName)) {
+                  const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
+                  this.body += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder) {
+                    ${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder('${openTagInfo.propertyName}', [${viewReferences.join(', ')}]);
+                  } else if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {`;
 
-                for (const viewRef of viewReferences) {
-                  this.body += `${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder(${viewRef}.constructor.name, ${viewRef});`;
+                  for (const viewRef of viewReferences) {
+                    this.body += `${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder(${viewRef}.constructor.name, ${viewRef});`;
+                  }
+
+                  this.body += `} else {
+                    throw new Error('Component ${tagName} has no support for nesting views');
+                  }`;
+                } else {
+                  const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
+                  this.body += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'};`;
                 }
-
-                this.body += `} else {
-                  throw new Error('Component ${tagName} has no support for nesting views');
-                }`;
               }
               break;
             }
             case ElementType.TEMPLATE: {
               const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
-              this.body += (childIndex != null ? `return ${ELEMENT_PREFIX}${childIndex};` : 'return null;') + '};';
+              this.body += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
+              this.body += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = ${openTagInfo.propertyName}${openTagInfo.index};`;
               break;
             }
             case ElementType.TEMPLATE_ARRAY: {
@@ -220,7 +227,7 @@ export class ComponentParser {
           }
         } else if (tagName === MULTI_TEMPLATE_TAG) {
           const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
-          this.body += (childIndex != null ? `return ${ELEMENT_PREFIX}${childIndex};` : 'return null;') + '};';
+          this.body += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
         } else {
           if (openTagInfo.childIndices.length) {
             this.body += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {`;
@@ -257,8 +264,9 @@ export class ComponentParser {
     return this.head + this.body;
   }
 
-  private isClosingTag(tagName, openTagInfo: TagInfo): boolean {
-    return openTagInfo.tagName === tagName && !openTagInfo.hasOpenChildTag;
+  private isClosingTag(closingTagName: string, openTagInfo: TagInfo): boolean {
+    const tagName = openTagInfo.propertyName != null ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
+    return tagName === closingTagName && !openTagInfo.hasOpenChildTag;
   }
 
   private appendImports() {
