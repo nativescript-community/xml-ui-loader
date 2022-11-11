@@ -13,7 +13,7 @@ const KNOWN_VIEW_COLLECTIONS: string[] = ['items', 'spans', 'actionItems'];
 
 enum ElementType {
   VIEW,
-  PROPERTY,
+  COMMON_PROPERTY,
   TEMPLATE,
   TEMPLATE_ARRAY
 }
@@ -94,7 +94,7 @@ export class ComponentParser {
           break;
         default:
           if (tagName === MULTI_TEMPLATE_TAG) {
-            const fullTagName = openTagInfo.type === ElementType.PROPERTY ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
+            const fullTagName = openTagInfo.propertyName != null ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
             throw new Error(`Template tags can only be nested inside template properties. Parent tag: ${fullTagName}`);
           }
           break;
@@ -127,7 +127,7 @@ export class ComponentParser {
         } else if (tagPropertyName.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE_ARRAY;
         } else {
-          newTagInfo.type = ElementType.PROPERTY;
+          newTagInfo.type = ElementType.COMMON_PROPERTY;
         }
       } else {
         throw new Error(`Property '${tagName}' is not suitable for parent '${openTagInfo.tagName}'`);
@@ -186,7 +186,7 @@ export class ComponentParser {
       if (this.isClosingTag(tagName, openTagInfo)) {
         if (openTagInfo.propertyName != null) {
           switch (openTagInfo.type) {
-            case ElementType.PROPERTY: {
+            case ElementType.COMMON_PROPERTY: {
               if (openTagInfo.childIndices.length) {
                 if (KNOWN_VIEW_COLLECTIONS.includes(openTagInfo.propertyName)) {
                   const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
@@ -265,8 +265,8 @@ export class ComponentParser {
   }
 
   private isClosingTag(closingTagName: string, openTagInfo: TagInfo): boolean {
-    const tagName = openTagInfo.type === ElementType.PROPERTY ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
-    return tagName === closingTagName && !openTagInfo.hasOpenChildTag;
+    const fullTagName = openTagInfo.propertyName != null ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
+    return fullTagName === closingTagName && !openTagInfo.hasOpenChildTag;
   }
 
   private appendImports() {
