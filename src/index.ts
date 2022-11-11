@@ -1,4 +1,4 @@
-import * as htmlparser2 from 'htmlparser2';
+import { Parser } from 'htmlparser2';
 import { js as beautify } from 'js-beautify';
 import { relative } from 'path';
 import { promisify } from 'util';
@@ -23,7 +23,7 @@ async function parseXMLTree(content: string) {
 
   let needsCompilation = true;
 
-  const xmlParser = new htmlparser2.Parser({
+  const xmlParser = new Parser({
     onopentag(tagName, attributes) {
       componentParser.handleOpenTag(tagName, attributes);
     },
