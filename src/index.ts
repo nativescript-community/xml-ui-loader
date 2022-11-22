@@ -53,12 +53,10 @@ async function parseXMLTree(content: string) {
     export default RAW_XML_CONTENT;`;
   }
 
-  componentParser.finish();
-
   // XML parser does not work asynchronously, so we resolve requested modules once everything is done
   await Promise.all(componentParser.getResolvedRequests().map(request => resolveAsync(this.context, request)));
 
-  return beautify(componentParser.getOutput(), {
+  return beautify(componentParser.getResult(), {
     indent_size: 2
   });
 }

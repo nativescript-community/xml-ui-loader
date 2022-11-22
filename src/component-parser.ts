@@ -1,10 +1,8 @@
 import { pascalCase } from 'change-case';
 import { join, parse } from 'path';
-
 const ELEMENT_PREFIX = 'el';
 const CODE_FILE = 'codeFile';
 const CSS_FILE = 'cssFile';
-const MULTI_TEMPLATE_TAG = 'template';
 const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
 const KNOWN_TEMPLATE_SUFFIX = 'Template';
 const KNOWN_MULTI_TEMPLATE_SUFFIX = 'Templates';
@@ -16,6 +14,23 @@ enum ElementType {
   COMMON_PROPERTY,
   TEMPLATE,
   TEMPLATE_ARRAY
+}
+
+// Enums are put in specific order as they are concatenated in the end
+enum ScopeType {
+  CORE_IMPORTS,
+  CUSTOM_IMPORTS,
+  CLASS_START,
+  SLOT_VIEW_TREE,
+  VIEW_TREE,
+  CLASS_END,
+  // Used for getting enum types count
+  SCOPE_COUNT
+}
+
+enum SpecialTags {
+  SLOT = 'slot',
+  TEMPLATE = 'template'
 }
 
 // Use hasOpenChildTag to check if parent tag is closing
@@ -33,15 +48,17 @@ interface TagInfo {
 export class ComponentParser {
   private openTags = new Array<TagInfo>();
   private resolvedRequests = new Array<string>();
+  private codeScopes = new Array<string>(ScopeType.SCOPE_COUNT);
+  private usedNSTags = new Set<string>();
 
   // Keep counter for the case of platform tags being inside platform tags
   private unsupportedPlatformTagCount: number = 0;
 
   private moduleDirPath: string = '';
   private moduleRelativePath: string = '';
-  private head: string = '';
-  private body: string = '';
   private platform: string;
+
+  private currentViewScope: ScopeType;
   private treeIndex: number = -1;
 
   constructor(moduleRelativePath: string, platform: string) {
@@ -50,14 +67,11 @@ export class ComponentParser {
 
     this.moduleDirPath = dir;
     this.moduleRelativePath = moduleRelativePath.substring(0, moduleRelativePath.length - ext.length);
-
-    this.appendImports();
-
-    this.body += `export default class ${componentName} {
-      constructor() {
-        var moduleExports;`;
-
     this.platform = platform;
+    this.currentViewScope = ScopeType.VIEW_TREE;
+    this.codeScopes.fill('');
+
+    this.initialize(componentName);
   }
 
   public handleOpenTag(tagName: string, attributes) {
@@ -88,12 +102,12 @@ export class ComponentParser {
           }
           break;
         case ElementType.TEMPLATE_ARRAY:
-          if (tagName !== MULTI_TEMPLATE_TAG) {
+          if (tagName !== SpecialTags.TEMPLATE) {
             throw new Error(`Property '${openTagInfo.tagName}' must be an array of templates`);
           }
           break;
         default:
-          if (tagName === MULTI_TEMPLATE_TAG) {
+          if (tagName === SpecialTags.TEMPLATE) {
             const fullTagName = openTagInfo.propertyName != null ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
             throw new Error(`Template tags can only be nested inside template properties. Parent tag: ${fullTagName}`);
           }
@@ -123,7 +137,7 @@ export class ComponentParser {
 
         if (tagPropertyName.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE;
-          this.body += `var ${newTagInfo.propertyName}${openTagInfo.index} = () => {`;
+          this.codeScopes[this.currentViewScope] += `var ${newTagInfo.propertyName}${openTagInfo.index} = () => {`;
         } else if (tagPropertyName.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE_ARRAY;
         } else {
@@ -132,7 +146,7 @@ export class ComponentParser {
       } else {
         throw new Error(`Property '${tagName}' is not suitable for parent '${openTagInfo.tagName}'`);
       }
-    } else if (tagName === MULTI_TEMPLATE_TAG) {
+    } else if (tagName === SpecialTags.TEMPLATE) {
       if (openTagInfo != null) {
         if (openTagInfo.type === ElementType.TEMPLATE_ARRAY) {
           newTagInfo.index = openTagInfo.index;
@@ -142,7 +156,7 @@ export class ComponentParser {
           // This is necessary for proper string escape
           const attrValue = MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes ? attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE].replaceAll('\'', '\\\'') : '';
 
-          this.body += `var ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex} = () => {`;
+          this.codeScopes[this.currentViewScope] += `var ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex} = () => {`;
           openTagInfo.keys.push(attrValue);
           openTagInfo.childIndices.push(templateIndex);
         } else {
@@ -163,6 +177,9 @@ export class ComponentParser {
       newTagInfo.type = ElementType.VIEW;
 
       openTagInfo != null && openTagInfo.childIndices.push(this.treeIndex);
+
+      // Store tags that are actually nativescript core components
+      !prefix && this.usedNSTags.add(tagName);
     }
 
     newTagInfo != null && this.openTags.push(newTagInfo);
@@ -190,28 +207,33 @@ export class ComponentParser {
               if (openTagInfo.childIndices.length) {
                 if (KNOWN_VIEW_COLLECTIONS.includes(openTagInfo.propertyName)) {
                   const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
-                  this.body += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder) {
+                  this.codeScopes[this.currentViewScope] += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder) {
                     ${ELEMENT_PREFIX}${openTagInfo.index}._addArrayFromBuilder('${openTagInfo.propertyName}', [${viewReferences.join(', ')}]);
                   } else if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {`;
 
                   for (const viewRef of viewReferences) {
-                    this.body += `${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder(${viewRef}.constructor.name, ${viewRef});`;
+                    this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder(${viewRef}.constructor.name, ${viewRef});`;
                   }
 
-                  this.body += `} else {
+                  this.codeScopes[this.currentViewScope] += `} else {
                     throw new Error('Component ${tagName} has no support for nesting views');
                   }`;
                 } else {
+                  // Note: NativeScript UI plugins make use of Property valueChanged event to manipulate views
                   const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
-                  this.body += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'};`;
+                  this.codeScopes[this.currentViewScope] += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {
+                    ${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder(${ELEMENT_PREFIX}${childIndex}.constructor.name, ${ELEMENT_PREFIX}${childIndex});
+                  } else {
+                    ${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = ${ELEMENT_PREFIX}${childIndex};
+                  }`;
                 }
               }
               break;
             }
             case ElementType.TEMPLATE: {
               const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
-              this.body += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
-              this.body += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = ${openTagInfo.propertyName}${openTagInfo.index};`;
+              this.codeScopes[this.currentViewScope] += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
+              this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = ${openTagInfo.propertyName}${openTagInfo.index};`;
               break;
             }
             case ElementType.TEMPLATE_ARRAY: {
@@ -219,22 +241,22 @@ export class ComponentParser {
                 ${MULTI_TEMPLATE_KEY_ATTRIBUTE}: '${openTagInfo.keys[index]}',
                 createView: ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex}
               }`);
-              this.body += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = [${keyedTemplates.join(', ')}];`;
+              this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = [${keyedTemplates.join(', ')}];`;
               break;
             }
             default:
               throw new Error(`Invalid closing property tag '${openTagInfo.tagName}'`);
           }
-        } else if (tagName === MULTI_TEMPLATE_TAG) {
+        } else if (tagName === SpecialTags.TEMPLATE) {
           const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
-          this.body += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
+          this.codeScopes[this.currentViewScope] += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
         } else {
           if (openTagInfo.childIndices.length) {
-            this.body += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {`;
+            this.codeScopes[this.currentViewScope] += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {`;
             for (const childIndex of openTagInfo.childIndices) {
-              this.body += `${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder(${ELEMENT_PREFIX}${childIndex}.constructor.name, ${ELEMENT_PREFIX}${childIndex});`;
+              this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder(${ELEMENT_PREFIX}${childIndex}.constructor.name, ${ELEMENT_PREFIX}${childIndex});`;
             }
-            this.body += '}';
+            this.codeScopes[this.currentViewScope] += '}';
           }
         }
 
@@ -254,14 +276,34 @@ export class ComponentParser {
     return this.resolvedRequests;
   }
 
-  public finish() {
-    this.body += `return ${ELEMENT_PREFIX}0;
-      }
-    }`;
+  public getResult(): string {
+    let result: string;
+
+    // Check if component has actual view content
+    if (this.treeIndex >= 0) {
+      this.appendImportsForUI();
+      this.codeScopes[this.currentViewScope] += `return ${ELEMENT_PREFIX}0;`;
+
+      result = this.codeScopes.join('');
+    } else {
+      result = '';
+    }
+    return result;
   }
 
-  public getOutput(): string {
-    return this.head + this.body;
+  private initialize(componentName: string) {
+    this.codeScopes[ScopeType.CORE_IMPORTS] += `var { resolveModuleName } = require('@nativescript/core/module-name-resolver');
+    var { setPropertyValue } = require('@nativescript/core/ui/builder/component-builder');
+    `;
+
+    this.codeScopes[ScopeType.CUSTOM_IMPORTS] += 'var customModules = {};';
+
+    this.codeScopes[ScopeType.CLASS_START] += `export default class ${componentName} {
+      constructor(args = {}) {`;
+
+    this.codeScopes[ScopeType.CLASS_END] += `}
+    }
+    ${componentName}.isXMLComponent = true;`;
   }
 
   private isClosingTag(closingTagName: string, openTagInfo: TagInfo): boolean {
@@ -269,12 +311,14 @@ export class ComponentParser {
     return fullTagName === closingTagName && !openTagInfo.hasOpenChildTag;
   }
 
-  private appendImports() {
-    this.head += `var { resolveModuleName } = require('@nativescript/core/module-name-resolver');
-    var uiCoreModules = require('@nativescript/core/ui');
-    var { setPropertyValue } = require('@nativescript/core/ui/builder/component-builder');
-    var customModules = {};
-    `;
+  private appendImportsForUI() {
+    if (!this.usedNSTags.size) {
+      return;
+    }
+
+    const usedTagNames = Array.from(this.usedNSTags).sort();
+    this.codeScopes[ScopeType.CORE_IMPORTS] += `var { ${usedTagNames.join(', ')} } = require('@nativescript/core/ui');`;
+    this.usedNSTags.clear();
   }
 
   private getPropertyCode(propertyName, propertyValue) {
@@ -296,6 +340,7 @@ export class ComponentParser {
 
   private buildComponent(elementName: string, prefix: string, attributes) {
     let propertyContent: string = '';
+    const classRef = prefix ? `customModules['${prefix}'].${elementName}` : elementName;
 
     // Ignore this one
     if ('xmlns' in attributes) {
@@ -314,23 +359,22 @@ export class ComponentParser {
       if (KNOWN_PLATFORMS.includes(prefix.toLowerCase()) && prefix.toLowerCase() !== this.platform.toLowerCase()) {
         continue;
       }
-
+      
       propertyContent += this.getPropertyCode(propertyName, value);
     }
 
     if (this.treeIndex == 0) {
-      // Script (variable moduleExports is defined at the beginning of constructor)
+      // Script
       if (CODE_FILE in attributes) {
         const attrValue = attributes[CODE_FILE];
         this.resolvedRequests.push(attrValue);
 
         const resolvedPath = this.getResolvedPath(attrValue);
-        this.body += `var resolvedCodeModuleName = resolveModuleName('${resolvedPath}', '');`;
-        this.body += 'moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : null;';
+        this.codeScopes[ScopeType.CLASS_START] += `var resolvedCodeModuleName = resolveModuleName('${resolvedPath}', '');`;
       } else {
-        this.body += `var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');
-        moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : this.__fallbackModuleExports;`;
+        this.codeScopes[ScopeType.CLASS_START] += `var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');`;
       }
+      this.codeScopes[ScopeType.CLASS_START] += 'var moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : args.moduleExports;';
 
       // Style
       if (CSS_FILE in attributes) {
@@ -338,19 +382,22 @@ export class ComponentParser {
         this.resolvedRequests.push(attrValue);
 
         const resolvedPath = this.getResolvedPath(attrValue);
-        this.body += `var resolvedCssModuleName = resolveModuleName('${resolvedPath}', 'css');`;
+        this.codeScopes[ScopeType.CLASS_START] += `var resolvedCssModuleName = resolveModuleName('${resolvedPath}', 'css');`;
       } else {
-        this.body += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');`;
+        this.codeScopes[ScopeType.CLASS_START] += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');`;
       }
     }
 
-    this.body += `var ${ELEMENT_PREFIX}${this.treeIndex} = global.xmlCompiler.newInstance({elementName: '${elementName}', prefix: '${prefix}', moduleExports, uiCoreModules, customModules});`;
-    if (this.treeIndex == 0) {
-      this.body += `resolvedCssModuleName && ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);`;
+    this.codeScopes[this.currentViewScope] += `var ${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}({
+      moduleExports
+    }) : new ${classRef}();`;
+
+    if (this.treeIndex === 0) {
+      this.codeScopes[this.currentViewScope] += `resolvedCssModuleName && ${ELEMENT_PREFIX}${this.treeIndex}.addCssFile(resolvedCssModuleName);`;
     }
 
     // Apply properties to instance
-    this.body += propertyContent;
+    this.codeScopes[this.currentViewScope] += propertyContent;
   }
 
   private registerNamespace(propertyName, propertyValue) {
@@ -364,8 +411,8 @@ export class ComponentParser {
     const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
 
     // Register module using resolve path as key and overwrite old registration if any
-    this.head += `global.registerModule('${resolvedPath}', () => require('${propertyValue}'));`;
-    this.body += `global.xmlCompiler.loadCustomModule('${propertyName}', '${resolvedPath}', '${ext}', customModules);`;
+    this.codeScopes[ScopeType.CUSTOM_IMPORTS] += `global.registerModule('${resolvedPath}', () => require('${propertyValue}'));`;
+    this.codeScopes[this.currentViewScope] += `customModules['${propertyName}'] = global.xmlCompiler.loadCustomModule('${resolvedPath}', '${ext}');`;
   }
 
   private getLocalAndPrefixByName(name: string): string[] {
