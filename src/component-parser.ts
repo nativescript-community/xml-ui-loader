@@ -41,9 +41,10 @@ interface TagInfo {
   attributes: any;
   type: ElementType;
   childIndices: Array<number>;
-  keys: Array<string>;
+  templateKeys?: Array<string>;
+  slotNames?: Array<string>;
+  isCustomComponent: boolean;
   isSlotView: boolean;
-  isNestingSlotViews: boolean;
   hasOpenChildTag: boolean;
 }
 
@@ -127,10 +128,6 @@ export class ComponentParser {
             }
           }
 
-          if (openTagInfo.childIndices.length && (openTagInfo.isNestingSlotViews && !isTagWithSlotName || !openTagInfo.isNestingSlotViews && isTagWithSlotName)) {
-            throw new Error(`Invalid child tag '${tagName}' inside '${openTagInfo.tagName}'. Cannot mix common views with views that target slots`);
-          }
-
           if (tagName === SpecialTags.TEMPLATE) {
             const fullTagName = openTagInfo.propertyName != null ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
             throw new Error(`Template tags can only be nested inside template properties. Parent tag: ${fullTagName}`);
@@ -147,9 +144,8 @@ export class ComponentParser {
       attributes,
       type: null,
       childIndices: [],
-      keys: [],
+      isCustomComponent: false,
       isSlotView: false,
-      isNestingSlotViews: false,
       hasOpenChildTag: false
     };
 
@@ -166,6 +162,7 @@ export class ComponentParser {
           this.codeScopes[this.currentViewScope] += `var ${newTagInfo.propertyName}${openTagInfo.index} = () => {`;
         } else if (tagPropertyName.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE_ARRAY;
+          newTagInfo.templateKeys = [];
         } else {
           newTagInfo.type = ElementType.COMMON_PROPERTY;
         }
@@ -183,7 +180,7 @@ export class ComponentParser {
           const attrValue = MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes ? attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE] : '';
 
           this.codeScopes[this.currentViewScope] += `var ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex} = () => {`;
-          openTagInfo.keys.push(attrValue);
+          openTagInfo.templateKeys.push(attrValue);
           openTagInfo.childIndices.push(templateIndex);
         } else {
           // Ignore tag if it's nested inside a single-template property
@@ -204,7 +201,7 @@ export class ComponentParser {
       newTagInfo.type = ElementType.VIEW;
 
       if (openTagInfo != null) {
-        if (!isSlotFallback) {
+        if (openTagInfo.isCustomComponent && !isSlotFallback) {
           if (isTagWithSlotName) {
             const slotName = attributes.slot;
 
@@ -213,12 +210,10 @@ export class ComponentParser {
             // Switch scope back to view tree once tag is closed
             this.currentViewScope = ScopeType.SLOT_VIEW_TREE;
 
-            if (!openTagInfo.keys.includes(slotName)) {
+            if (!openTagInfo.slotNames.includes(slotName)) {
               this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${slotName}'] = [];`;
             }
-
-            openTagInfo.isNestingSlotViews = true;
-            openTagInfo.keys.push(slotName);
+            openTagInfo.slotNames.push(slotName);
           } else {
             openTagInfo.childIndices.push(this.treeIndex);
           }
@@ -239,6 +234,9 @@ export class ComponentParser {
         this.buildComponent(elementName, prefix, attributes, isSlotFallback);
 
         if (prefix != null) {
+          newTagInfo.isCustomComponent = true;
+          newTagInfo.slotNames = [];
+
           // A prefixed element has support for nesting views with slot name
           this.codeScopes[ScopeType.SLOT_VIEW_TREE] += `var slotViews${this.treeIndex} = {};`;
         } else {
@@ -247,7 +245,7 @@ export class ComponentParser {
         }
       }
 
-      if (openTagInfo != null) {
+      if (openTagInfo != null && openTagInfo.isCustomComponent) {
         if (isTagWithSlotName && !isSlotFallback) {
           this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${attributes.slot}'].push(${ELEMENT_PREFIX}${this.treeIndex});`;
         }
@@ -316,7 +314,7 @@ export class ComponentParser {
             }
             case ElementType.TEMPLATE_ARRAY: {
               const keyedTemplates = openTagInfo.childIndices.map((templateIndex: number, index: number) => `{
-                ${MULTI_TEMPLATE_KEY_ATTRIBUTE}: '${openTagInfo.keys[index]}',
+                ${MULTI_TEMPLATE_KEY_ATTRIBUTE}: '${openTagInfo.templateKeys[index]}',
                 createView: ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex}
               }`);
               this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = [${keyedTemplates.join(', ')}];`;
@@ -332,6 +330,10 @@ export class ComponentParser {
           this.codeScopes[this.currentViewScope] += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
         } else {
           if (openTagInfo.childIndices.length) {
+            if (openTagInfo.isCustomComponent && openTagInfo.slotNames.length) {
+              throw new Error(`Cannot mix common views with views that target slots inside tag '${tagName}'`);
+            }
+
             this.codeScopes[this.currentViewScope] += `if (${ELEMENT_PREFIX}${openTagInfo.index}._addChildFromBuilder) {`;
             for (const childIndex of openTagInfo.childIndices) {
               this.codeScopes[this.currentViewScope] += `if (${ELEMENT_PREFIX}${childIndex}) {
