@@ -201,8 +201,8 @@ export class ComponentParser {
       newTagInfo.type = ElementType.VIEW;
 
       if (openTagInfo != null) {
-        if (openTagInfo.isCustomComponent && !isSlotFallback) {
-          if (isTagWithSlotName) {
+        if (!isSlotFallback) {
+          if (openTagInfo.isCustomComponent && isTagWithSlotName) {
             const slotName = attributes.slot;
 
             newTagInfo.isSlotView = true;
@@ -212,8 +212,8 @@ export class ComponentParser {
 
             if (!openTagInfo.slotNames.includes(slotName)) {
               this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${slotName}'] = [];`;
+              openTagInfo.slotNames.push(slotName);
             }
-            openTagInfo.slotNames.push(slotName);
           } else {
             openTagInfo.childIndices.push(this.treeIndex);
           }
@@ -453,6 +453,11 @@ export class ComponentParser {
 
     const entries = Object.entries(attributes) as any;
     for (const [name, value] of entries) {
+      // XML parser does not handle whitespaces
+      if (name.includes('\\')) {
+        continue;
+      }
+
       if (name === 'slot') {
         continue;
       }
