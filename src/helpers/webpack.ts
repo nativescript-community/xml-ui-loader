@@ -1,8 +1,8 @@
 import { resolve } from 'path';
 
 export function chainLoaderConfiguration(config, options) {
-  const virtualEntryPath = resolve(__dirname, '../virtual-entry');
-  config.entry('bundle').add(virtualEntryPath);
+  const addonsPath = resolve(__dirname, '../bundle-addons');
+  config.entry('bundle').add(addonsPath);
 
   config.module.rules.delete('xml');
 
