@@ -185,7 +185,7 @@ export class ComponentParser {
 
       if (openTagInfo != null) {
         if (openTagInfo.isParentForSlots) {
-          const slotName = attributes.slot;
+          const slotName = attributes.slot || 'default';
 
           if (!openTagInfo.slotNames.includes(slotName)) {
             this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${slotName}'] = [];`;
@@ -200,7 +200,7 @@ export class ComponentParser {
       }
 
       if (tagName === SpecialTags.SLOT) {
-        const name = attributes.name ?? '';
+        const name = attributes.name || 'default';
 
         this.codeScopes[this.currentViewScope] += `var ${ELEMENT_PREFIX}${this.treeIndex};
         if (this.__slotViews['${name}']) {
@@ -222,7 +222,8 @@ export class ComponentParser {
       }
 
       if (openTagInfo != null && openTagInfo.isParentForSlots) {
-        this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${attributes.slot}'].push(${ELEMENT_PREFIX}${this.treeIndex});`;
+        const slotName = attributes.slot || 'default';
+        this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${slotName}'].push(${ELEMENT_PREFIX}${this.treeIndex});`;
       }
     }
 
@@ -280,7 +281,7 @@ export class ComponentParser {
           const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
           this.codeScopes[this.currentViewScope] += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
         } else {
-          if (openTagInfo.isParentForSlots && openTagInfo.nestedTagCount) {
+          if (openTagInfo.isParentForSlots && openTagInfo.nestedTagCount > 1) {
             throw new Error(`Cannot mix common views or properties with slot content inside tag '${tagName}'`);
           }
 
@@ -381,7 +382,7 @@ export class ComponentParser {
       default:
         if (openTagInfo.tagName === SpecialTags.SLOT) {
           if (newTagName === SpecialTags.SLOT) {
-            throw new Error(`Cannot nest slot '${attributes.slot ?? '<unnamed>'}' inside another slot`);
+            throw new Error(`Cannot nest slot '${attributes.slot || 'default'}' inside another slot`);
           }
 
           if (openTagInfo.nestedTagCount) {
