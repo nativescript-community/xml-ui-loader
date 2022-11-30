@@ -107,6 +107,7 @@ export class ComponentParser {
 
     if (openTagInfo != null) {
       this.checkOpenTagNestingConditions(openTagInfo, tagName, attributes);
+
       openTagInfo.hasOpenChildTag = true;
       openTagInfo.nestedTagCount++;
     }
@@ -145,6 +146,9 @@ export class ComponentParser {
       }
     } else if (tagName === SpecialTags.SLOT_CONTENT) {
       if (openTagInfo != null) {
+        newTagInfo.index = openTagInfo.index;
+        newTagInfo.slotNames = [];
+        
         // Switch scope back to view tree once tag is closed
         this.currentViewScope = ScopeType.SLOT_VIEW_TREE;
 
@@ -173,8 +177,8 @@ export class ComponentParser {
         throw new Error('Failed to parse template. No parent found');
       }
     } else {
-      const isSlotFallback: boolean = openTagInfo?.tagName === SpecialTags.SLOT;
-      if (isSlotFallback) {
+      const parentTagName: string = openTagInfo?.tagName;
+      if (parentTagName === SpecialTags.SLOT) {
         this.codeScopes[this.currentViewScope] += '} else {';
       } else {
         this.treeIndex++;
@@ -184,7 +188,7 @@ export class ComponentParser {
       newTagInfo.type = ElementType.VIEW;
 
       if (openTagInfo != null) {
-        if (openTagInfo.isParentForSlots) {
+        if (openTagInfo.tagName === SpecialTags.SLOT_CONTENT) {
           const slotName = attributes.slot || 'default';
 
           if (!openTagInfo.slotNames.includes(slotName)) {
@@ -207,13 +211,12 @@ export class ComponentParser {
           ${ELEMENT_PREFIX}${this.treeIndex} = this.__slotViews['${name}'];`;
       } else {
         const [ elementName, prefix ] = this.getLocalAndPrefixByName(tagName);
-        this.buildComponent(elementName, prefix, attributes, isSlotFallback);
+        this.buildComponent(elementName, prefix, parentTagName, attributes);
 
         if (prefix != null) {
           newTagInfo.isCustomComponent = true;
-          newTagInfo.slotNames = [];
 
-          // A prefixed element has support for nesting views with slot name
+          // Initialize slot views instance
           this.codeScopes[ScopeType.SLOT_VIEW_TREE] += `var slotViews${this.treeIndex} = {};`;
         } else {
           // Store tags that are actually nativescript core components
@@ -221,7 +224,7 @@ export class ComponentParser {
         }
       }
 
-      if (openTagInfo != null && openTagInfo.isParentForSlots) {
+      if (openTagInfo != null && openTagInfo.tagName === SpecialTags.SLOT_CONTENT) {
         const slotName = attributes.slot || 'default';
         this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${slotName}'].push(${ELEMENT_PREFIX}${this.treeIndex});`;
       }
@@ -425,7 +428,7 @@ export class ComponentParser {
     return `${instanceReference} && setPropertyValue(${instanceReference}, null, moduleExports, '${propertyName}', '${attrValue}');`;
   }
 
-  private buildComponent(elementName: string, prefix: string, attributes, isSlotFallback: boolean) {
+  private buildComponent(elementName: string, prefix: string, parentTagName: string, attributes) {
     let propertyContent: string = '';
 
     // Ignore unused attributes
@@ -454,13 +457,14 @@ export class ComponentParser {
       propertyContent += this.getPropertyCode(propertyName, value);
     }
 
+    const varStatement = parentTagName === SpecialTags.SLOT ? '' : 'var ';
     if (prefix != null) {
       const classRef = `customModules['${prefix}'].${elementName}`;
       this.codeScopes[this.currentViewScope] += `${classRef}.prototype.__slotViews = slotViews${this.treeIndex};`;
-      this.codeScopes[this.currentViewScope] += (isSlotFallback ? '' : 'var ') + `${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();`;
+      this.codeScopes[this.currentViewScope] += `${varStatement}${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();`;
       this.codeScopes[this.currentViewScope] += `delete ${classRef}.prototype.__slotViews;`;
     } else {
-      this.codeScopes[this.currentViewScope] += (isSlotFallback ? '' : 'var ') + `${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();`;
+      this.codeScopes[this.currentViewScope] += `${varStatement}${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();`;
     }
 
     // Apply properties to instance
