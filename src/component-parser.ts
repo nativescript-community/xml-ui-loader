@@ -134,7 +134,7 @@ export class ComponentParser {
 
         if (tagPropertyName.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE;
-          this.codeScopes[this.currentViewScope] += `var ${newTagInfo.propertyName}${openTagInfo.index} = () => {`;
+          this.codeScopes[this.currentViewScope] += `let ${newTagInfo.propertyName}${openTagInfo.index} = () => {`;
         } else if (tagPropertyName.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE_ARRAY;
           newTagInfo.templateKeys = [];
@@ -166,7 +166,7 @@ export class ComponentParser {
           // This is necessary for proper string escape
           const attrValue = MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes ? attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE] : '';
 
-          this.codeScopes[this.currentViewScope] += `var ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex} = () => {`;
+          this.codeScopes[this.currentViewScope] += `let ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex} = () => {`;
           openTagInfo.templateKeys.push(attrValue);
           openTagInfo.childIndices.push(templateIndex);
         } else {
@@ -206,9 +206,9 @@ export class ComponentParser {
       if (tagName === SpecialTags.SLOT) {
         const name = attributes.name || 'default';
 
-        this.codeScopes[this.currentViewScope] += `var ${ELEMENT_PREFIX}${this.treeIndex};
-        if (this.__slotViews['${name}']) {
-          ${ELEMENT_PREFIX}${this.treeIndex} = this.__slotViews['${name}'];`;
+        this.codeScopes[this.currentViewScope] += `let ${ELEMENT_PREFIX}${this.treeIndex};
+        if (this.$slotViews['${name}']) {
+          ${ELEMENT_PREFIX}${this.treeIndex} = this.$slotViews['${name}'];`;
       } else {
         const [ elementName, prefix ] = this.getLocalAndPrefixByName(tagName);
         this.buildComponent(elementName, prefix, parentTagName, attributes);
@@ -217,7 +217,7 @@ export class ComponentParser {
           newTagInfo.isCustomComponent = true;
 
           // Initialize slot views instance
-          this.codeScopes[ScopeType.SLOT_VIEW_TREE] += `var slotViews${this.treeIndex} = {};`;
+          this.codeScopes[ScopeType.SLOT_VIEW_TREE] += `let slotViews${this.treeIndex} = {};`;
         } else {
           // Store tags that are actually nativescript core components
           this.usedNSTags.add(tagName);
@@ -339,11 +339,11 @@ export class ComponentParser {
   }
 
   private initialize(componentName: string) {
-    this.codeScopes[ScopeType.CORE_IMPORTS] += `var { resolveModuleName } = require('@nativescript/core/module-name-resolver');
-    var { setPropertyValue } = require('@nativescript/core/ui/builder/component-builder');
+    this.codeScopes[ScopeType.CORE_IMPORTS] += `let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
+    let { setPropertyValue } = require('@nativescript/core/ui/builder/component-builder');
     `;
 
-    this.codeScopes[ScopeType.CUSTOM_IMPORTS] += 'var customModules = {};';
+    this.codeScopes[ScopeType.CUSTOM_IMPORTS] += 'let customModules = {};';
     this.codeScopes[ScopeType.CLASS_START] += `export default class ${componentName} {
       constructor(moduleExportsFallback = null) {`;
     this.codeScopes[ScopeType.CLASS_END] += `}
@@ -407,7 +407,7 @@ export class ComponentParser {
     }
 
     const usedTagNames = Array.from(this.usedNSTags).sort();
-    this.codeScopes[ScopeType.CORE_IMPORTS] += `var { ${usedTagNames.join(', ')} } = require('@nativescript/core/ui');`;
+    this.codeScopes[ScopeType.CORE_IMPORTS] += `let { ${usedTagNames.join(', ')} } = require('@nativescript/core/ui');`;
     this.usedNSTags.clear();
   }
 
@@ -457,14 +457,14 @@ export class ComponentParser {
       propertyContent += this.getPropertyCode(propertyName, value);
     }
 
-    const varStatement = parentTagName === SpecialTags.SLOT ? '' : 'var ';
+    const letStatement = parentTagName === SpecialTags.SLOT ? '' : 'let ';
     if (prefix != null) {
       const classRef = `customModules['${prefix}'].${elementName}`;
-      this.codeScopes[this.currentViewScope] += `${classRef}.prototype.__slotViews = slotViews${this.treeIndex};`;
-      this.codeScopes[this.currentViewScope] += `${varStatement}${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();`;
-      this.codeScopes[this.currentViewScope] += `delete ${classRef}.prototype.__slotViews;`;
+      this.codeScopes[this.currentViewScope] += `${classRef}.prototype.$slotViews = slotViews${this.treeIndex};`;
+      this.codeScopes[this.currentViewScope] += `${letStatement}${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();`;
+      this.codeScopes[this.currentViewScope] += `delete ${classRef}.prototype.$slotViews;`;
     } else {
-      this.codeScopes[this.currentViewScope] += `${varStatement}${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();`;
+      this.codeScopes[this.currentViewScope] += `${letStatement}${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();`;
     }
 
     // Apply properties to instance
@@ -478,9 +478,9 @@ export class ComponentParser {
       this.resolvedRequests.push(attrValue);
 
       const resolvedPath = this.getResolvedPath(attrValue);
-      this.codeScopes[ScopeType.CLASS_START] += `var resolvedCodeModuleName = resolveModuleName('${resolvedPath}', '');`;
+      this.codeScopes[ScopeType.CLASS_START] += `let resolvedCodeModuleName = resolveModuleName('${resolvedPath}', '');`;
     } else {
-      this.codeScopes[ScopeType.CLASS_START] += `var resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');`;
+      this.codeScopes[ScopeType.CLASS_START] += `let resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');`;
     }
 
     // Style
@@ -489,12 +489,12 @@ export class ComponentParser {
       this.resolvedRequests.push(attrValue);
 
       const resolvedPath = this.getResolvedPath(attrValue);
-      this.codeScopes[ScopeType.CLASS_START] += `var resolvedCssModuleName = resolveModuleName('${resolvedPath}', 'css');`;
+      this.codeScopes[ScopeType.CLASS_START] += `let resolvedCssModuleName = resolveModuleName('${resolvedPath}', 'css');`;
     } else {
-      this.codeScopes[ScopeType.CLASS_START] += `var resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');`;
+      this.codeScopes[ScopeType.CLASS_START] += `let resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');`;
     }
 
-    this.codeScopes[ScopeType.CLASS_START] += 'var moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : moduleExportsFallback;';
+    this.codeScopes[ScopeType.CLASS_START] += 'let moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : moduleExportsFallback;';
   }
 
   private registerNamespace(propertyName, propertyValue) {
