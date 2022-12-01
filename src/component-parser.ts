@@ -43,7 +43,7 @@ interface TagInfo {
   nestedTagCount: number;
   childIndices: Array<number>;
   templateKeys?: Array<string>;
-  slotNames?: Array<string>;
+  slotMap?: Map<string, Array<number>>;
   isCustomComponent: boolean;
   isParentForSlots: boolean;
   hasOpenChildTag: boolean;
@@ -147,7 +147,7 @@ export class ComponentParser {
     } else if (tagName === SpecialTags.SLOT_CONTENT) {
       if (openTagInfo != null) {
         newTagInfo.index = openTagInfo.index;
-        newTagInfo.slotNames = [];
+        newTagInfo.slotMap = new Map();
         
         // Switch scope back to view tree once tag is closed
         this.currentViewScope = ScopeType.SLOT_VIEW_TREE;
@@ -191,9 +191,10 @@ export class ComponentParser {
         if (openTagInfo.tagName === SpecialTags.SLOT_CONTENT) {
           const slotName = attributes.slot || 'default';
 
-          if (!openTagInfo.slotNames.includes(slotName)) {
-            this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${slotName}'] = [];`;
-            openTagInfo.slotNames.push(slotName);
+          if (!openTagInfo.slotMap.has(slotName)) {
+            openTagInfo.slotMap.set(slotName, [this.treeIndex]);
+          } else {
+            openTagInfo.slotMap.get(slotName).push(this.treeIndex);
           }
         } else {
           openTagInfo.childIndices.push(this.treeIndex);
@@ -222,11 +223,6 @@ export class ComponentParser {
           // Store tags that are actually nativescript core components
           this.usedNSTags.add(tagName);
         }
-      }
-
-      if (openTagInfo != null && openTagInfo.tagName === SpecialTags.SLOT_CONTENT) {
-        const slotName = attributes.slot || 'default';
-        this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${slotName}'].push(${ELEMENT_PREFIX}${this.treeIndex});`;
       }
     }
 
@@ -275,9 +271,21 @@ export class ComponentParser {
             default:
               throw new Error(`Invalid closing property tag '${openTagInfo.tagName}'`);
           }
-        } else if (tagName === SpecialTags.SLOT) {
-          this.codeScopes[this.currentViewScope] += '}';
         } else if (tagName === SpecialTags.SLOT_CONTENT) {
+          for (const [slotName, childIndices] of openTagInfo.slotMap) {
+            this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${slotName}'] = [];`;
+            for (const childIndex of childIndices) {
+              // Check if element is an array in case it's a slot that actually targets another slot or undefined in case that slot is empty
+              this.codeScopes[this.currentViewScope] += `if (${ELEMENT_PREFIX}${childIndex}) {
+                if (Array.isArray(${ELEMENT_PREFIX}${childIndex})) {
+                  slotViews${openTagInfo.index}['${slotName}'].push(...${ELEMENT_PREFIX}${childIndex});
+                } else {
+                  slotViews${openTagInfo.index}['${slotName}'].push(${ELEMENT_PREFIX}${childIndex});
+                }
+              }`;
+            }
+          }
+
           // Get out of slot view tree scope
           this.currentViewScope = ScopeType.VIEW_TREE;
         } else if (tagName === SpecialTags.TEMPLATE) {
@@ -288,9 +296,13 @@ export class ComponentParser {
             throw new Error(`Cannot mix common views or properties with slot content inside tag '${tagName}'`);
           }
 
-          if (openTagInfo.childIndices.length) {
-            const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
-            this.codeScopes[this.currentViewScope] += `global.xmlCompiler.addViewsFromBuilder(${ELEMENT_PREFIX}${openTagInfo.index}, [${viewReferences.join(', ')}]);`;
+          if (tagName === SpecialTags.SLOT) {
+            this.codeScopes[this.currentViewScope] += '}';
+          } else {
+            if (openTagInfo.childIndices.length) {
+              const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
+              this.codeScopes[this.currentViewScope] += `global.xmlCompiler.addViewsFromBuilder(${ELEMENT_PREFIX}${openTagInfo.index}, [${viewReferences.join(', ')}]);`;
+            }
           }
         }
 
