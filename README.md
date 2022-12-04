@@ -14,6 +14,7 @@ It's meant to improve performance and allow developers to use XML files as modul
 ## Table of Contents
 
 - [Install](#install)
+- [Setup](#setup)
 - [Usage](#usage)
   - [Import as a module](#import-as-a-module)
   - [Import as plain XML](#import-as-plain-xml)
@@ -25,7 +26,6 @@ It's meant to improve performance and allow developers to use XML files as modul
     - [Targeting slots](#targeting-slots)
     - [Slot fallback](#slot-fallback)
     - [Using slots in JS/TS components](#using-slots-in-jsts-components)
-- [Setup](#setup)
 - [License](#license)
 
 
@@ -33,6 +33,34 @@ It's meant to improve performance and allow developers to use XML files as modul
 
 ```
 npm install @nativescript-community/xml-ui-loader --save-dev
+```
+
+
+## Setup
+
+This loader requires a new webpack configuration:
+
+`webpack.config.js`
+```javascript
+const webpack = require('@nativescript/webpack');
+const { getEntryDirPath, getPlatformName } = require('@nativescript/webpack/dist/helpers/platform');
+const { chainLoaderConfiguration } = require("@nativescript-community/xml-ui-loader/dist/helpers/webpack");
+
+module.exports = (env) => {
+  webpack.init(env);
+
+  // Learn how to customize:
+  // https://docs.nativescript.org/webpack
+
+  webpack.chainWebpack((config) => {
+    chainLoaderConfiguration(config, {
+      appPath: getEntryDirPath(),
+      platform: getPlatformName()
+    });
+  });
+
+  return webpack.resolveConfig();
+};
 ```
 
 
@@ -229,33 +257,6 @@ export {
     </slotContent>
   </mcv:MyCustomView>
 </Page>
-```
-
-## Setup
-
-This loader requires a new webpack configuration:
-
-`webpack.config.js`
-```javascript
-const webpack = require('@nativescript/webpack');
-const { getEntryDirPath, getPlatformName } = require('@nativescript/webpack/dist/helpers/platform');
-const { chainLoaderConfiguration } = require("@nativescript-community/xml-ui-loader/dist/helpers/webpack");
-
-module.exports = (env) => {
-  webpack.init(env);
-
-  // Learn how to customize:
-  // https://docs.nativescript.org/webpack
-
-  webpack.chainWebpack((config) => {
-    chainLoaderConfiguration(config, {
-      appPath: getEntryDirPath(),
-      platform: getPlatformName()
-    });
-  });
-
-  return webpack.resolveConfig();
-};
 ```
 
 
