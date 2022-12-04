@@ -215,12 +215,13 @@ Apart from views, slots can also target other slots.
 
 #### Slot fallback
 
-Fallback refers to a view that is rendered when no view(s) target the slot.
+Fallback refers to the content (one or more views) that is rendered when no view(s) target the slot.
 ```xml
 <!-- my-custom-view.xml -->
 <StackLayout>
   <slot>
-    <Label text="not found!"/>
+    <Label text="Not found!"/>
+    <Label text="Really?"/>
   </slot>
 </StackLayout>
 ```
@@ -234,6 +235,8 @@ import { StackLayout } from '@nativescript/core';
 class MyCustomView extends StackLayout {
   // Constructor has sole access to slot views
   constructor() {
+    super();
+
     // $slotViews is an array of views
     if (this.$slotViews['default']) {
       for (const view of this.$slotViews['default']) {

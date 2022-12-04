@@ -66,6 +66,7 @@ export class ComponentParser {
   private treeIndex: number = -1;
 
   private isComponentInitialized: boolean = false;
+  private isInSlotFallbackScope: boolean = false;
 
   constructor(moduleRelativePath: string, platform: string) {
     const { dir, ext, name } = parse(moduleRelativePath);
@@ -178,8 +179,12 @@ export class ComponentParser {
       }
     } else {
       const parentTagName: string = openTagInfo?.tagName;
-      if (parentTagName === SpecialTags.SLOT) {
-        this.codeScopes[this.currentViewScope] += '} else {';
+      const isSlotFallback: boolean = parentTagName === SpecialTags.SLOT;
+
+      if (isSlotFallback) {
+        if (openTagInfo.nestedTagCount === 1) {
+          this.codeScopes[this.currentViewScope] += '} else { let fallbackViews = [];';
+        }
       } else {
         this.treeIndex++;
       }
@@ -210,6 +215,8 @@ export class ComponentParser {
         this.codeScopes[this.currentViewScope] += `let ${ELEMENT_PREFIX}${this.treeIndex};
         if (this.$slotViews['${name}']) {
           ${ELEMENT_PREFIX}${this.treeIndex} = this.$slotViews['${name}'];`;
+
+        this.isInSlotFallbackScope = true;
       } else {
         const [ elementName, prefix ] = this.getLocalAndPrefixByName(tagName);
         this.buildComponent(elementName, prefix, parentTagName, attributes);
@@ -297,7 +304,12 @@ export class ComponentParser {
           }
 
           if (tagName === SpecialTags.SLOT) {
+            if (openTagInfo.nestedTagCount > 0) {
+              this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${openTagInfo.index} = fallbackViews;`;
+            }
             this.codeScopes[this.currentViewScope] += '}';
+
+            this.isInSlotFallbackScope = false;
           } else {
             if (openTagInfo.childIndices.length) {
               const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
@@ -369,6 +381,12 @@ export class ComponentParser {
   }
 
   private checkOpenTagNestingConditions(openTagInfo: TagInfo, newTagName: string, attributes) {
+    if (newTagName === SpecialTags.SLOT) {
+      if (this.isInSlotFallbackScope) {
+        throw new Error(`Cannot declare slot '${attributes.slot || 'default'}' inside slot fallback scope`);
+      }
+    }
+
     if (newTagName === SpecialTags.SLOT_CONTENT) {
       if (!openTagInfo.isCustomComponent) {
         throw new Error(`Invalid tag '${newTagName}'. Can only nest slot content inside custom component tags`);
@@ -395,16 +413,6 @@ export class ComponentParser {
         }
         break;
       default:
-        if (openTagInfo.tagName === SpecialTags.SLOT) {
-          if (newTagName === SpecialTags.SLOT) {
-            throw new Error(`Cannot nest slot '${attributes.slot || 'default'}' inside another slot`);
-          }
-
-          if (openTagInfo.nestedTagCount) {
-            throw new Error(`Tag '${openTagInfo.tagName}' does not accept more than a single nested element`);
-          }
-        }
-
         if (newTagName === SpecialTags.TEMPLATE) {
           const fullTagName = openTagInfo.propertyName != null ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
           throw new Error(`Template tags can only be nested inside template properties. Parent tag: ${fullTagName}`);
@@ -423,26 +431,7 @@ export class ComponentParser {
     this.usedNSTags.clear();
   }
 
-  private getPropertyCode(propertyName, propertyValue) {
-    let instanceReference = `${ELEMENT_PREFIX}${this.treeIndex}`;
-    // This is necessary for proper string escape
-    const attrValue = propertyValue.replaceAll('\'', '\\\'');
-
-    if (propertyName.indexOf('.') !== -1) {
-      const properties = propertyName.split('.');
-
-      for (let i = 0, length = properties.length - 1; i < length; i++) {
-        instanceReference += `?.${properties[i]}`;
-      }
-      propertyName = properties[properties.length - 1];
-    }
-
-    return `${instanceReference} && setPropertyValue(${instanceReference}, null, moduleExports, '${propertyName}', '${attrValue}');`;
-  }
-
-  private buildComponent(elementName: string, prefix: string, parentTagName: string, attributes) {
-    let propertyContent: string = '';
-
+  private readAttributes(attributes, callback?: (propertyName: string, propertyValue: string) => void) {
     // Ignore unused attributes
     if ('xmlns' in attributes) {
       delete attributes['xmlns'];
@@ -466,17 +455,54 @@ export class ComponentParser {
           continue;
         }
       }
-      propertyContent += this.getPropertyCode(propertyName, value);
+
+      callback && callback(propertyName, value);
+    }
+  }
+
+  private getPropertyCode(propertyName, propertyValue) {
+    let instanceReference = `${ELEMENT_PREFIX}${this.treeIndex}`;
+    // This is necessary for proper string escape
+    const attrValue = propertyValue.replaceAll('\'', '\\\'');
+
+    if (propertyName.indexOf('.') !== -1) {
+      const properties = propertyName.split('.');
+
+      for (let i = 0, length = properties.length - 1; i < length; i++) {
+        instanceReference += `?.${properties[i]}`;
+      }
+      propertyName = properties[properties.length - 1];
     }
 
-    const letStatement = parentTagName === SpecialTags.SLOT ? '' : 'let ';
+    return `${instanceReference} && setPropertyValue(${instanceReference}, null, moduleExports, '${propertyName}', '${attrValue}');`;
+  }
+
+  private buildComponent(elementName: string, prefix: string, parentTagName: string, attributes) {
+    const isSlotFallback = parentTagName === SpecialTags.SLOT;
+    let propertyContent: string = '';
+    this.readAttributes(attributes, (propertyName: string, value: string) => {
+      propertyContent += this.getPropertyCode(propertyName, value);
+    });
+
     if (prefix != null) {
       const classRef = `customModules['${prefix}'].${elementName}`;
       this.codeScopes[this.currentViewScope] += `${classRef}.prototype.$slotViews = slotViews${this.treeIndex};`;
-      this.codeScopes[this.currentViewScope] += `${letStatement}${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();`;
+
+      if (isSlotFallback) {
+        this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();
+        fallbackViews.push(${ELEMENT_PREFIX}${this.treeIndex});`;
+      } else {
+        this.codeScopes[this.currentViewScope] += `let ${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();`;
+      }
+
       this.codeScopes[this.currentViewScope] += `delete ${classRef}.prototype.$slotViews;`;
     } else {
-      this.codeScopes[this.currentViewScope] += `${letStatement}${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();`;
+      if (isSlotFallback) {
+        this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();
+        fallbackViews.push(${ELEMENT_PREFIX}${this.treeIndex});`;
+      } else {
+        this.codeScopes[this.currentViewScope] += `let ${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();`;
+      }
     }
 
     // Apply properties to instance
