@@ -16,7 +16,7 @@ enum ElementType {
 }
 
 // Enums are put in specific order as they are concatenated in the end
-enum ScopeType {
+enum CodeScope {
   CORE_IMPORTS,
   CUSTOM_IMPORTS,
   CLASS_START,
@@ -52,7 +52,8 @@ interface TagInfo {
 export class ComponentParser {
   private openTags = new Array<TagInfo>();
   private resolvedRequests = new Array<string>();
-  private codeScopes = new Array<string>(ScopeType.SCOPE_COUNT);
+  private codeScopes = new Array<string>(CodeScope.SCOPE_COUNT);
+  private pendingSlotContent = new Array<string>();
   private usedNSTags = new Set<string>();
 
   // Keep counter for the case of platform tags being inside platform tags
@@ -62,7 +63,7 @@ export class ComponentParser {
   private moduleRelativePath: string = '';
   private platform: string;
 
-  private currentViewScope: ScopeType;
+  private currentCodeScope: CodeScope;
   private treeIndex: number = -1;
 
   private isComponentInitialized: boolean = false;
@@ -75,7 +76,7 @@ export class ComponentParser {
     this.moduleDirPath = dir;
     this.moduleRelativePath = moduleRelativePath.substring(0, moduleRelativePath.length - ext.length);
     this.platform = platform;
-    this.currentViewScope = ScopeType.VIEW_TREE;
+    this.currentCodeScope = CodeScope.VIEW_TREE;
     this.codeScopes.fill('');
 
     this.initialize(componentName);
@@ -135,7 +136,7 @@ export class ComponentParser {
 
         if (tagPropertyName.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE;
-          this.codeScopes[this.currentViewScope] += `let ${newTagInfo.propertyName}${openTagInfo.index} = () => {`;
+          this.codeScopes[this.currentCodeScope] += `let ${newTagInfo.propertyName}${openTagInfo.index} = () => {`;
         } else if (tagPropertyName.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE_ARRAY;
           newTagInfo.templateKeys = [];
@@ -150,8 +151,18 @@ export class ComponentParser {
         newTagInfo.index = openTagInfo.index;
         newTagInfo.slotMap = new Map();
         
-        // Switch scope back to view tree once tag is closed
-        this.currentViewScope = ScopeType.SLOT_VIEW_TREE;
+        // This is the case of slotContent on a view that is part of an outer slotContent
+        if (this.currentCodeScope === CodeScope.SLOT_VIEW_TREE) {
+          this.pendingSlotContent.push(this.codeScopes[this.currentCodeScope]);
+          this.codeScopes[CodeScope.SLOT_VIEW_TREE] = '';
+        } else {
+          // Switch scope back to view tree once tag is closed
+          this.currentCodeScope = CodeScope.SLOT_VIEW_TREE;
+        }
+
+        // Start with initializing slot views callback
+        this.codeScopes[CodeScope.SLOT_VIEW_TREE] += `slotDataset['viewsFor${openTagInfo.index}'] = () => {
+          let slotViews = {};`;
 
         openTagInfo.isParentForSlots = true;
       } else {
@@ -167,7 +178,7 @@ export class ComponentParser {
           // This is necessary for proper string escape
           const attrValue = MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes ? attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE] : '';
 
-          this.codeScopes[this.currentViewScope] += `let ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex} = () => {`;
+          this.codeScopes[this.currentCodeScope] += `let ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex} = () => {`;
           openTagInfo.templateKeys.push(attrValue);
           openTagInfo.childIndices.push(templateIndex);
         } else {
@@ -183,7 +194,7 @@ export class ComponentParser {
 
       if (isSlotFallback) {
         if (openTagInfo.nestedTagCount === 1) {
-          this.codeScopes[this.currentViewScope] += '} else { let fallbackViews = [];';
+          this.codeScopes[this.currentCodeScope] += '} else { let fallbackViews = [];';
         }
       } else {
         this.treeIndex++;
@@ -212,24 +223,22 @@ export class ComponentParser {
       if (tagName === SpecialTags.SLOT) {
         const name = attributes.name || 'default';
 
-        this.codeScopes[this.currentViewScope] += `let ${ELEMENT_PREFIX}${this.treeIndex};
+        this.codeScopes[this.currentCodeScope] += `let ${ELEMENT_PREFIX}${this.treeIndex};
         if (this.$slotViews['${name}']) {
           ${ELEMENT_PREFIX}${this.treeIndex} = this.$slotViews['${name}'];`;
 
         this.isInSlotFallbackScope = true;
       } else {
         const [ elementName, prefix ] = this.getLocalAndPrefixByName(tagName);
-        this.buildComponent(elementName, prefix, parentTagName, attributes);
 
         if (prefix != null) {
           newTagInfo.isCustomComponent = true;
-
-          // Initialize slot views instance
-          this.codeScopes[ScopeType.SLOT_VIEW_TREE] += `let slotViews${this.treeIndex} = {};`;
         } else {
           // Store tags that are actually nativescript core components
           this.usedNSTags.add(tagName);
         }
+
+        this.buildComponent(elementName, prefix, parentTagName, attributes);
       }
     }
 
@@ -257,14 +266,14 @@ export class ComponentParser {
             case ElementType.COMMON_PROPERTY: {
               if (openTagInfo.childIndices.length) {
                 const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
-                this.codeScopes[this.currentViewScope] += `global.xmlCompiler.addViewsFromBuilder(${ELEMENT_PREFIX}${openTagInfo.index}, [${viewReferences.join(', ')}], '${openTagInfo.propertyName}');`;
+                this.codeScopes[this.currentCodeScope] += `global.xmlCompiler.addViewsFromBuilder(${ELEMENT_PREFIX}${openTagInfo.index}, [${viewReferences.join(', ')}], '${openTagInfo.propertyName}');`;
               }
               break;
             }
             case ElementType.TEMPLATE: {
               const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
-              this.codeScopes[this.currentViewScope] += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
-              this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = ${openTagInfo.propertyName}${openTagInfo.index};`;
+              this.codeScopes[this.currentCodeScope] += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
+              this.codeScopes[this.currentCodeScope] += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = ${openTagInfo.propertyName}${openTagInfo.index};`;
               break;
             }
             case ElementType.TEMPLATE_ARRAY: {
@@ -272,7 +281,7 @@ export class ComponentParser {
                 ${MULTI_TEMPLATE_KEY_ATTRIBUTE}: '${openTagInfo.templateKeys[index]}',
                 createView: ${openTagInfo.propertyName}${openTagInfo.index}_${templateIndex}
               }`);
-              this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = [${keyedTemplates.join(', ')}];`;
+              this.codeScopes[this.currentCodeScope] += `${ELEMENT_PREFIX}${openTagInfo.index}.${openTagInfo.propertyName} = [${keyedTemplates.join(', ')}];`;
               break;
             }
             default:
@@ -280,24 +289,30 @@ export class ComponentParser {
           }
         } else if (tagName === SpecialTags.SLOT_CONTENT) {
           for (const [slotName, childIndices] of openTagInfo.slotMap) {
-            this.codeScopes[this.currentViewScope] += `slotViews${openTagInfo.index}['${slotName}'] = [];`;
+            this.codeScopes[this.currentCodeScope] += `slotViews['${slotName}'] = [];`;
             for (const childIndex of childIndices) {
               // Check if element is an array in case it's a slot that actually targets another slot or undefined in case that slot is empty
-              this.codeScopes[this.currentViewScope] += `if (${ELEMENT_PREFIX}${childIndex}) {
+              this.codeScopes[this.currentCodeScope] += `if (${ELEMENT_PREFIX}${childIndex}) {
                 if (Array.isArray(${ELEMENT_PREFIX}${childIndex})) {
-                  slotViews${openTagInfo.index}['${slotName}'].push(...${ELEMENT_PREFIX}${childIndex});
+                  slotViews['${slotName}'].push(...${ELEMENT_PREFIX}${childIndex});
                 } else {
-                  slotViews${openTagInfo.index}['${slotName}'].push(${ELEMENT_PREFIX}${childIndex});
+                  slotViews['${slotName}'].push(${ELEMENT_PREFIX}${childIndex});
                 }
               }`;
             }
           }
 
-          // Get out of slot view tree scope
-          this.currentViewScope = ScopeType.VIEW_TREE;
+          this.codeScopes[this.currentCodeScope] += 'return slotViews; };';
+
+          if (this.pendingSlotContent.length) {
+            this.codeScopes[this.currentCodeScope] += this.pendingSlotContent.pop();
+          } else {
+            // Get out of slot view tree scope
+            this.currentCodeScope = CodeScope.VIEW_TREE;
+          }
         } else if (tagName === SpecialTags.TEMPLATE) {
           const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
-          this.codeScopes[this.currentViewScope] += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
+          this.codeScopes[this.currentCodeScope] += `return ${childIndex != null ? ELEMENT_PREFIX + childIndex : 'null'}; };`;
         } else {
           if (openTagInfo.isParentForSlots && openTagInfo.nestedTagCount > 1) {
             throw new Error(`Cannot mix common views or properties with slot content inside tag '${tagName}'`);
@@ -305,15 +320,15 @@ export class ComponentParser {
 
           if (tagName === SpecialTags.SLOT) {
             if (openTagInfo.nestedTagCount > 0) {
-              this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${openTagInfo.index} = fallbackViews;`;
+              this.codeScopes[this.currentCodeScope] += `${ELEMENT_PREFIX}${openTagInfo.index} = fallbackViews;`;
             }
-            this.codeScopes[this.currentViewScope] += '}';
+            this.codeScopes[this.currentCodeScope] += '}';
 
             this.isInSlotFallbackScope = false;
           } else {
             if (openTagInfo.childIndices.length) {
               const viewReferences = openTagInfo.childIndices.map(treeIndex => `${ELEMENT_PREFIX}${treeIndex}`);
-              this.codeScopes[this.currentViewScope] += `global.xmlCompiler.addViewsFromBuilder(${ELEMENT_PREFIX}${openTagInfo.index}, [${viewReferences.join(', ')}]);`;
+              this.codeScopes[this.currentCodeScope] += `global.xmlCompiler.addViewsFromBuilder(${ELEMENT_PREFIX}${openTagInfo.index}, [${viewReferences.join(', ')}]);`;
             }
           }
         }
@@ -339,15 +354,12 @@ export class ComponentParser {
     return this.resolvedRequests;
   }
 
-  public getResult(): string {
+  public generateResult(): string {
     let result: string;
 
     // Check if component has actual view content
     if (this.isComponentInitialized) {
       this.appendImportsForUI();
-      this.codeScopes[this.currentViewScope] += `resolvedCssModuleName && ${ELEMENT_PREFIX}0.addCssFile(resolvedCssModuleName);
-      return ${ELEMENT_PREFIX}0;`;
-
       result = this.codeScopes.join('');
     } else {
       result = '';
@@ -356,14 +368,17 @@ export class ComponentParser {
   }
 
   private initialize(componentName: string) {
-    this.codeScopes[ScopeType.CORE_IMPORTS] += `let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
+    this.codeScopes[CodeScope.CORE_IMPORTS] += `let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
     let { setPropertyValue } = require('@nativescript/core/ui/builder/component-builder');
     `;
 
-    this.codeScopes[ScopeType.CUSTOM_IMPORTS] += 'let customModules = {};';
-    this.codeScopes[ScopeType.CLASS_START] += `export default class ${componentName} {
-      constructor(moduleExportsFallback = null) {`;
-    this.codeScopes[ScopeType.CLASS_END] += `}
+    this.codeScopes[CodeScope.CLASS_START] += `export default class ${componentName} {
+      constructor(moduleExportsFallback = null) {
+        let customModules = {};
+        let slotDataset = {};`;
+    this.codeScopes[CodeScope.CLASS_END] += `resolvedCssModuleName && ${ELEMENT_PREFIX}0.addCssFile(resolvedCssModuleName);
+        return ${ELEMENT_PREFIX}0;
+      }
     }
     ${componentName}.isXMLComponent = true;`;
   }
@@ -420,7 +435,7 @@ export class ComponentParser {
     }
 
     const usedTagNames = Array.from(this.usedNSTags).sort();
-    this.codeScopes[ScopeType.CORE_IMPORTS] += `let { ${usedTagNames.join(', ')} } = require('@nativescript/core/ui');`;
+    this.codeScopes[CodeScope.CORE_IMPORTS] += `let { ${usedTagNames.join(', ')} } = require('@nativescript/core/ui');`;
     this.usedNSTags.clear();
   }
 
@@ -479,27 +494,27 @@ export class ComponentParser {
 
     if (prefix != null) {
       const classRef = `customModules['${prefix}'].${elementName}`;
-      this.codeScopes[this.currentViewScope] += `${classRef}.prototype.$slotViews = slotViews${this.treeIndex};`;
+      this.codeScopes[this.currentCodeScope] += `${classRef}.prototype.$slotViews = slotDataset['viewsFor${this.treeIndex}'] ? slotDataset['viewsFor${this.treeIndex}']() : {};`;
 
       if (isSlotFallback) {
-        this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();
+        this.codeScopes[this.currentCodeScope] += `${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();
         fallbackViews.push(${ELEMENT_PREFIX}${this.treeIndex});`;
       } else {
-        this.codeScopes[this.currentViewScope] += `let ${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();`;
+        this.codeScopes[this.currentCodeScope] += `let ${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();`;
       }
 
-      this.codeScopes[this.currentViewScope] += `delete ${classRef}.prototype.$slotViews;`;
+      this.codeScopes[this.currentCodeScope] += `delete ${classRef}.prototype.$slotViews;`;
     } else {
       if (isSlotFallback) {
-        this.codeScopes[this.currentViewScope] += `${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();
+        this.codeScopes[this.currentCodeScope] += `${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();
         fallbackViews.push(${ELEMENT_PREFIX}${this.treeIndex});`;
       } else {
-        this.codeScopes[this.currentViewScope] += `let ${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();`;
+        this.codeScopes[this.currentCodeScope] += `let ${ELEMENT_PREFIX}${this.treeIndex} = new ${elementName}();`;
       }
     }
 
     // Apply properties to instance
-    this.codeScopes[this.currentViewScope] += propertyContent;
+    this.codeScopes[this.currentCodeScope] += propertyContent;
   }
 
   private bindCodeAndStyleModules(attributes) {
@@ -509,9 +524,9 @@ export class ComponentParser {
       this.resolvedRequests.push(attrValue);
 
       const resolvedPath = this.getResolvedPath(attrValue);
-      this.codeScopes[ScopeType.CLASS_START] += `let resolvedCodeModuleName = resolveModuleName('${resolvedPath}', '');`;
+      this.codeScopes[CodeScope.CLASS_START] += `let resolvedCodeModuleName = resolveModuleName('${resolvedPath}', '');`;
     } else {
-      this.codeScopes[ScopeType.CLASS_START] += `let resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');`;
+      this.codeScopes[CodeScope.CLASS_START] += `let resolvedCodeModuleName = resolveModuleName('${this.moduleRelativePath}', '');`;
     }
 
     // Style
@@ -520,12 +535,12 @@ export class ComponentParser {
       this.resolvedRequests.push(attrValue);
 
       const resolvedPath = this.getResolvedPath(attrValue);
-      this.codeScopes[ScopeType.CLASS_START] += `let resolvedCssModuleName = resolveModuleName('${resolvedPath}', 'css');`;
+      this.codeScopes[CodeScope.CLASS_START] += `let resolvedCssModuleName = resolveModuleName('${resolvedPath}', 'css');`;
     } else {
-      this.codeScopes[ScopeType.CLASS_START] += `let resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');`;
+      this.codeScopes[CodeScope.CLASS_START] += `let resolvedCssModuleName = resolveModuleName('${this.moduleRelativePath}', 'css');`;
     }
 
-    this.codeScopes[ScopeType.CLASS_START] += 'let moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : moduleExportsFallback;';
+    this.codeScopes[CodeScope.CLASS_START] += 'let moduleExports = resolvedCodeModuleName ? global.loadModule(resolvedCodeModuleName, true) : moduleExportsFallback;';
   }
 
   private registerNamespace(propertyName, propertyValue) {
@@ -539,8 +554,8 @@ export class ComponentParser {
     const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
 
     // Register module using resolve path as key and overwrite old registration if any
-    this.codeScopes[ScopeType.CUSTOM_IMPORTS] += `global.registerModule('${resolvedPath}', () => require('${propertyValue}'));`;
-    this.codeScopes[ScopeType.CLASS_START] += `customModules['${propertyName}'] = global.xmlCompiler.loadCustomModule('${resolvedPath}', '${ext}');`;
+    this.codeScopes[CodeScope.CUSTOM_IMPORTS] += `global.registerModule('${resolvedPath}', () => require('${propertyValue}'));`;
+    this.codeScopes[CodeScope.CLASS_START] += `customModules['${propertyName}'] = global.xmlCompiler.loadCustomModule('${resolvedPath}', '${ext}');`;
   }
 
   private getLocalAndPrefixByName(name: string): string[] {
