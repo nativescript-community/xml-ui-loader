@@ -336,21 +336,14 @@ export class ComponentParser {
   }
 
   public getResolvedRequests(): string[] {
-    if (!this.isComponentInitialized) {
-      throw new Error('Cannot retrieve required module paths as component parsing has not yet been completed');
-    }
     return this.resolvedRequests;
   }
 
   public getResult(): string {
-    if (!this.isComponentInitialized) {
-      throw new Error('Cannot retrieve code output as component parsing has not yet been completed');
-    }
-
     let result: string;
 
     // Check if component has actual view content
-    if (this.treeIndex >= 0) {
+    if (this.isComponentInitialized) {
       this.appendImportsForUI();
       this.codeScopes[this.currentViewScope] += `resolvedCssModuleName && ${ELEMENT_PREFIX}0.addCssFile(resolvedCssModuleName);
       return ${ELEMENT_PREFIX}0;`;
