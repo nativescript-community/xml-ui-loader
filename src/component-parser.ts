@@ -540,7 +540,7 @@ export class ComponentParser {
 
     // Register module using resolve path as key and overwrite old registration if any
     this.codeScopes[ScopeType.CUSTOM_IMPORTS] += `global.registerModule('${resolvedPath}', () => require('${propertyValue}'));`;
-    this.codeScopes[this.currentViewScope] += `customModules['${propertyName}'] = global.xmlCompiler.loadCustomModule('${resolvedPath}', '${ext}');`;
+    this.codeScopes[ScopeType.CLASS_START] += `customModules['${propertyName}'] = global.xmlCompiler.loadCustomModule('${resolvedPath}', '${ext}');`;
   }
 
   private getLocalAndPrefixByName(name: string): string[] {
