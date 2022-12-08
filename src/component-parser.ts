@@ -161,7 +161,7 @@ export class ComponentParser {
         }
 
         // Start with initializing slot views callback
-        this.codeScopes[CodeScope.SLOT_VIEW_TREE] += `slotDataset['viewsFor${openTagInfo.index}'] = () => {
+        this.codeScopes[CodeScope.SLOT_VIEW_TREE] += `slotViewScopes['viewsFor${openTagInfo.index}'] = () => {
           let slotViews = {};`;
 
         openTagInfo.isParentForSlots = true;
@@ -223,9 +223,11 @@ export class ComponentParser {
       if (tagName === SpecialTags.SLOT) {
         const name = attributes.name || 'default';
 
+        // Consume slot views if any
         this.codeScopes[this.currentCodeScope] += `let ${ELEMENT_PREFIX}${this.treeIndex};
         if (this.$slotViews['${name}']) {
-          ${ELEMENT_PREFIX}${this.treeIndex} = this.$slotViews['${name}'];`;
+          ${ELEMENT_PREFIX}${this.treeIndex} = this.$slotViews['${name}'];
+          delete this.$slotViews['${name}'];`;
 
         this.isInSlotFallbackScope = true;
       } else {
@@ -375,7 +377,7 @@ export class ComponentParser {
     this.codeScopes[CodeScope.CLASS_START] += `export default class ${componentName} {
       constructor(moduleExportsFallback = null) {
         let customModules = {};
-        let slotDataset = {};`;
+        let slotViewScopes = {};`;
     this.codeScopes[CodeScope.CLASS_END] += `resolvedCssModuleName && ${ELEMENT_PREFIX}0.addCssFile(resolvedCssModuleName);
         return ${ELEMENT_PREFIX}0;
       }
@@ -494,7 +496,7 @@ export class ComponentParser {
 
     if (prefix != null) {
       const classRef = `customModules['${prefix}'].${elementName}`;
-      this.codeScopes[this.currentCodeScope] += `${classRef}.prototype.$slotViews = slotDataset['viewsFor${this.treeIndex}'] ? slotDataset['viewsFor${this.treeIndex}']() : {};`;
+      this.codeScopes[this.currentCodeScope] += `${classRef}.prototype.$slotViews = slotViewScopes['viewsFor${this.treeIndex}'] ? slotViewScopes['viewsFor${this.treeIndex}']() : {};`;
 
       if (isSlotFallback) {
         this.codeScopes[this.currentCodeScope] += `${ELEMENT_PREFIX}${this.treeIndex} = ${classRef}.isXMLComponent ? new ${classRef}(moduleExports) : new ${classRef}();
