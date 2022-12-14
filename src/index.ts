@@ -1,62 +1,39 @@
-import { Parser } from 'htmlparser2';
-import { js as beautify } from 'js-beautify';
+import generate from '@babel/generator';
 import { relative } from 'path';
 import { promisify } from 'util';
-import { ComponentParser } from './component-parser';
+import { transformIntoAST } from './component-builder';
+import { LoaderOptions } from './helpers/config';
 
 export default function loader(content: string, map: any) {
   const callback = this.async();
 
-  parseXMLTree.bind(this)(content).then((output) => {
+  loadContent(this, content).then((output) => {
     callback(null, output, map);
   }).catch((err) => {
     callback(err);
   });
 }
 
-async function parseXMLTree(content: string) {
-  const { appPath, platform } = this.getOptions();
-  const moduleRelativePath = relative(appPath, this.resourcePath);
-  const resolveAsync = promisify(this.resolve);
+async function loadContent(loader, content): Promise<string> {
+  const options: LoaderOptions = loader.getOptions();
+  const moduleRelativePath = relative(options.appPath, loader.resourcePath);
 
-  const componentParser = new ComponentParser(moduleRelativePath, platform);
-
-  let needsCompilation = true;
-
-  const xmlParser = new Parser({
-    onopentag(tagName, attributes) {
-      componentParser.handleOpenTag(tagName, attributes);
-    },
-    onprocessinginstruction(name) {
-      if (name == '?xml') {
-        needsCompilation = false;
-        xmlParser.reset();
-      }
-    },
-    onclosetag(tagName) {
-      componentParser.handleCloseTag(tagName);
-    },
-    onerror(err) {
-      throw err;
-    }
-  }, {
-    xmlMode: true
+  const { output, pathsToResolve } = transformIntoAST(content, {
+    moduleRelativePath,
+    platform: options.platform,
+    attributeValueFormatter: options.preprocess?.attributeValueFormatter
   });
-  xmlParser.write(content);
-  xmlParser.end();
 
-  if (!needsCompilation) {
-    // escape special whitespace characters
-    // see: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify#Issue_with_plain_JSON.stringify_for_use_as_JavaScript
-    const xml = JSON.stringify(content).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-    return `const RAW_XML_CONTENT = ${xml};
-    export default RAW_XML_CONTENT;`;
+  if (output == null) {
+    return '';
   }
 
   // XML parser does not work asynchronously, so we resolve requested modules once everything is done
-  await Promise.all(componentParser.getResolvedRequests().map(request => resolveAsync(this.context, request)));
+  if (pathsToResolve?.length) {
+    const resolveAsync = promisify(loader.resolve);
+    await Promise.all(pathsToResolve.map(request => resolveAsync(loader.context, request)));
+  }
 
-  return beautify(componentParser.generateResult(), {
-    indent_size: 2
-  });
+  // Convert AST to JS
+  return options.preprocess?.transformAst ? options.preprocess?.transformAst(output, generate) : generate(output).code;
 }

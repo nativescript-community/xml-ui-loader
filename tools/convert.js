@@ -1,3 +1,4 @@
+const fs = require('fs');
 const { join } = require('path');
 const xmlLoader = require('../dist').default;
 
@@ -6,6 +7,9 @@ if (process.argv.length < 3) {
   console.warn('Please provide XML string as parameter!');
   return;
 }
+
+const parameter = process.argv[process.argv.length - 1];
+const content = process.argv.includes('--inline') ? parameter : fs.readFileSync(parameter, 'utf8');
 
 const mockContext = {
   async() {
@@ -33,4 +37,4 @@ const mockContext = {
   context: '/home/test/app/views/home'
 };
 
-xmlLoader.bind(mockContext)(process.argv[2], null);
+xmlLoader.bind(mockContext)(content, null);
