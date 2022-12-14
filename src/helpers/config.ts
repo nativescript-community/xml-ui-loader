@@ -1,6 +1,18 @@
+import { Program } from '@babel/types';
 import { resolve } from 'path';
 
-export function chainLoaderConfiguration(config, options) {
+export type AttributeValueFormatter = (value: string, attributeName?: string, tagName?: string, attributes?) => string;
+
+export interface LoaderOptions {
+  appPath: string;
+  platform: string;
+  preprocess?: {
+    attributeValueFormatter?: AttributeValueFormatter;
+    transformAst?: (ast: Program, generateFunc) => string;
+  };
+}
+
+export function chainLoaderConfiguration(config, options: LoaderOptions) {
   const addonsPath = resolve(__dirname, '../bundle-addons');
   config.entry('bundle').add(addonsPath);
 
@@ -14,10 +26,7 @@ export function chainLoaderConfiguration(config, options) {
     .test(/\.xml$/i)
     .use('@nativescript-community/xml-ui-loader')
     .loader('@nativescript-community/xml-ui-loader')
-    .options({
-      appPath: options.appPath,
-      platform: options.platform
-    });
+    .options(options);
 
   config.plugin('DefinePlugin').tap(args => {
     Object.assign(args[0], {

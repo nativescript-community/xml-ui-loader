@@ -31,12 +31,12 @@
   },
   "homepage": "https://github.com/nativescript-community/xml-ui-loader#readme",
   "dependencies": {
+    "@babel/generator": "^7.20.5",
+    "@babel/types": "^7.20.5",
     "change-case": "^4.1.2",
-    "htmlparser2": "^8.0.1",
-    "js-beautify": "^1.14.6"
+    "htmlparser2": "^8.0.1"
   },
   "devDependencies": {
-    "@types/js-beautify": "^1.13.3",
     "@types/node": "^18.8.3",
     "@typescript-eslint/eslint-plugin": "^5.35.1",
     "@typescript-eslint/parser": "^5.35.1",
