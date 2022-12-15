@@ -1,5 +1,5 @@
-const c = require('ansi-colors');
 const generate = require('@babel/generator').default;
+const c = require('ansi-colors');
 const fs = require('fs');
 const { highlight } = require('cli-highlight');
 const { transformIntoAST } = require('../dist/component-builder');
