@@ -2,7 +2,7 @@ const generate = require('@babel/generator').default;
 const c = require('ansi-colors');
 const fs = require('fs');
 const { highlight } = require('cli-highlight');
-const { transformIntoAST } = require('../dist/component-builder');
+const { transformIntoAST } = require('../dist/builders/component-builder');
 
 if (process.argv.length < 3) {
   // eslint-disable-next-line no-console
