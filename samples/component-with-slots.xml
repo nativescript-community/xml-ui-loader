@@ -1,0 +1,7 @@
+<StackLayout>
+  <slot name="title"/>
+  <slot>
+    <Label text="No text found"/>
+  </slot>
+  <slot name ="footer"/>
+</StackLayout>

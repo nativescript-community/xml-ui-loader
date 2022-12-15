@@ -1,40 +1,23 @@
 const fs = require('fs');
-const { join } = require('path');
-const xmlLoader = require('../dist').default;
+const generate = require('@babel/generator').default;
+const chalk = require('chalk');
+const { transformIntoAST } = require('../dist/component-builder');
 
 if (process.argv.length < 3) {
   // eslint-disable-next-line no-console
-  console.warn('Please provide XML string as parameter!');
+  console.warn(chalk.redBright(`Usage:
+  - npm run convert path/to/file
+  - npm run convert -- --inline '<TagName attribute="value">...</TagName>'`));
   return;
 }
 
 const parameter = process.argv[process.argv.length - 1];
 const content = process.argv.includes('--inline') ? parameter : fs.readFileSync(parameter, 'utf8');
 
-const mockContext = {
-  async() {
-    return (err, output, map) => {
-      // beautify-js will also help on checking if output syntax is broken as it will not beautify further
-      /* eslint-disable no-console */
-      if (err) {
-        console.error(err);
-      } else {
-        console.log(output);
-      }
-      /* eslint-enable no-console */
-    };
-  },
-  getOptions() {
-    return {
-      appPath: '/home/test/app',
-      platform: 'ios'
-    };
-  },
-  resolve: (context, request, callback) => {
-    callback(null, join(context, request));
-  },
-  resourcePath: '/home/test/app/views/home/home.xml',
-  context: '/home/test/app/views/home'
-};
+const { output } = transformIntoAST(content, {
+  moduleRelativePath: 'views/test/test.xml',
+  platform: 'android'
+});
 
-xmlLoader.bind(mockContext)(content, null);
+// eslint-disable-next-line no-console
+console.log(chalk.greenBright(generate(output).code));
