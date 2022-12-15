@@ -20,7 +20,9 @@ const { output } = transformIntoAST(content, {
   platform: 'android'
 });
 
-// eslint-disable-next-line no-console
-console.log(highlight(generate(output).code, {
-  language: 'js'
-}));
+if (output) {
+  // eslint-disable-next-line no-console
+  console.log(highlight(generate(output).code, {
+    language: 'js'
+  }));
+}
