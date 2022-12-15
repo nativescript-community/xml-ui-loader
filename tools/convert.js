@@ -1,11 +1,12 @@
-const fs = require('fs');
+const c = require('ansi-colors');
 const generate = require('@babel/generator').default;
-const chalk = require('chalk');
+const fs = require('fs');
+const { highlight } = require('cli-highlight');
 const { transformIntoAST } = require('../dist/component-builder');
 
 if (process.argv.length < 3) {
   // eslint-disable-next-line no-console
-  console.warn(chalk.redBright(`Usage:
+  console.warn(c.redBright(`Usage:
   - npm run convert path/to/file
   - npm run convert -- --inline '<TagName attribute="value">...</TagName>'`));
   return;
@@ -20,4 +21,6 @@ const { output } = transformIntoAST(content, {
 });
 
 // eslint-disable-next-line no-console
-console.log(chalk.greenBright(generate(output).code));
+console.log(highlight(generate(output).code, {
+  language: 'js'
+}));
