@@ -1,8 +1,8 @@
 import generate from '@babel/generator';
 import { relative } from 'path';
 import { promisify } from 'util';
-import { transformIntoAST } from './component-builder';
-import { LoaderOptions } from './helpers/config';
+import { transformIntoAST } from './builders/component-builder';
+import { LoaderOptions } from './helpers';
 
 export default function loader(content: string, map: any) {
   const callback = this.async();

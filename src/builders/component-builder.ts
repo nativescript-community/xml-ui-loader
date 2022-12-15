@@ -2,7 +2,7 @@ import * as t from '@babel/types';
 import { pascalCase } from 'change-case';
 import { Parser } from 'htmlparser2';
 import { join, parse } from 'path';
-import { AttributeValueFormatter } from './helpers/config';
+import { AttributeValueFormatter } from '../helpers';
 
 const ELEMENT_PREFIX = 'el';
 const CODE_FILE = 'codeFile';
