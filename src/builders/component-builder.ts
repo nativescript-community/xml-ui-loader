@@ -42,7 +42,7 @@ interface TagInfo {
   childIndices: Array<number>;
   ast: {
     body: Array<t.Expression | t.Statement>;
-    nextIndex: number;
+    spliceIndex: number; // This index is often useful for prepending or appending AST content
   };
   slotMap?: Map<string, Array<number>>;
   isCustomComponent: boolean;
@@ -185,7 +185,7 @@ export class ComponentBuilder {
       childIndices: [],
       ast: {
         body: null,
-        nextIndex: -1
+        spliceIndex: -1
       },
       isCustomComponent: false,
       isParentForSlots: false,
@@ -201,7 +201,7 @@ export class ComponentBuilder {
         newTagInfo.propertyName = tagPropertyName;
         newTagInfo.ast = {
           body: [],
-          nextIndex: 0
+          spliceIndex: 0
         };
 
         if (tagPropertyName.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
@@ -249,7 +249,7 @@ export class ComponentBuilder {
         newTagInfo.slotMap = new Map();
         newTagInfo.ast = {
           body: [],
-          nextIndex: 0
+          spliceIndex: 0
         };
 
         openTagInfo.isParentForSlots = true;
@@ -266,7 +266,7 @@ export class ComponentBuilder {
           newTagInfo.type = ElementType.TEMPLATE;
           newTagInfo.ast = {
             body: [],
-            nextIndex: openTagInfo.ast.nextIndex
+            spliceIndex: 0
           };
 
           openTagInfo.ast.body.push(
@@ -323,7 +323,7 @@ export class ComponentBuilder {
       newTagInfo.type = ElementType.VIEW;
       newTagInfo.ast = {
         body: astBody,
-        nextIndex: astBody.length
+        spliceIndex: astBody.length
       };
 
       if (tagName === SpecialTags.SLOT) {
@@ -366,7 +366,7 @@ export class ComponentBuilder {
             ])
           )
         );
-        newTagInfo.ast.nextIndex = newTagInfo.ast.body.length;
+        newTagInfo.ast.spliceIndex = newTagInfo.ast.body.length;
 
         this.isInSlotFallbackScope = true;
       } else {
@@ -387,7 +387,7 @@ export class ComponentBuilder {
               ]
             )
           );
-          newTagInfo.ast.nextIndex++;
+          newTagInfo.ast.spliceIndex = newTagInfo.ast.body.length;
         } else {
           // Store tags that are actually nativescript core components
           this.usedNSTags.add(tagName);
@@ -533,7 +533,7 @@ export class ComponentBuilder {
           }
 
           // Put slot ast content into parent body
-          parentTagInfo.ast.body.splice(parentTagInfo.ast.nextIndex, 0, ...openTagInfo.ast.body);
+          parentTagInfo.ast.body.splice(parentTagInfo.ast.spliceIndex, 0, ...openTagInfo.ast.body);
         } else if (tagName === SpecialTags.TEMPLATE) {
           const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
           openTagInfo.ast.body.push(t.returnStatement(childIndex != null ? t.identifier(ELEMENT_PREFIX + childIndex) : t.nullLiteral()));
@@ -543,10 +543,11 @@ export class ComponentBuilder {
           }
 
           if (tagName === SpecialTags.SLOT) {
-            const slotFallbackAstBody = openTagInfo.ast.body.splice(openTagInfo.ast.nextIndex);
-            if (slotFallbackAstBody.length) {
-              const slotIfStatement = openTagInfo.ast.body[openTagInfo.ast.nextIndex - 1];
+            if (openTagInfo.ast.body.length > openTagInfo.ast.spliceIndex) {
+              const slotIfStatement = openTagInfo.ast.body[openTagInfo.ast.spliceIndex - 1];
               if (t.isIfStatement(slotIfStatement)) {
+                const slotFallbackAstBody = openTagInfo.ast.body.splice(openTagInfo.ast.spliceIndex);
+
                 slotFallbackAstBody.unshift(
                   t.variableDeclaration(
                     'let',
@@ -573,6 +574,7 @@ export class ComponentBuilder {
                 throw new Error('Invalid slot syntax for slot fallback views');
               }
             }
+
             this.isInSlotFallbackScope = false;
           } else {
             if (openTagInfo.childIndices.length) {
@@ -814,6 +816,7 @@ export class ComponentBuilder {
 
   private buildComponentAst(index: number, elementName: string, prefix: string, parentTagName: string): Array<t.Expression | t.Statement> {
     const astBody = [];
+    const elementIdentifier = t.identifier(ELEMENT_PREFIX + index);
     const isSlotFallback = parentTagName === SpecialTags.SLOT;
 
     if (prefix != null) {
@@ -826,7 +829,7 @@ export class ComponentBuilder {
         t.identifier(elementName)
       );
 
-      const astNewInstance = t.conditionalExpression(
+      const astNewExpression = t.conditionalExpression(
         t.memberExpression(classAstRef, t.identifier('isXMLComponent')),
         t.newExpression(classAstRef, [
           t.identifier('moduleExports')
@@ -834,62 +837,80 @@ export class ComponentBuilder {
         t.newExpression(classAstRef, [])
       );
 
-      astBody.push(t.expressionStatement(
-        t.assignmentExpression(
-          '=', 
-          t.memberExpression(
+      astBody.push(
+        t.expressionStatement(
+          t.assignmentExpression(
+            '=', 
             t.memberExpression(
-              classAstRef, 
-              t.identifier('prototype')
-            ), 
-            t.identifier('$slotViews')
-          ),
-          t.identifier(`slotViews${index}`)
-        )
-      ), isSlotFallback ? t.expressionStatement(
-        t.assignmentExpression(
-          '=',
-          t.identifier(ELEMENT_PREFIX + index),
-          astNewInstance
-        )
-      ) : t.variableDeclaration(
-        'let',
-        [
-          t.variableDeclarator(
-            t.identifier(ELEMENT_PREFIX + index),
-            astNewInstance
-          )
-        ]
-      ), t.expressionStatement(
-        t.unaryExpression(
-          'delete',
-          t.memberExpression(
-            t.memberExpression(
-              classAstRef,
-              t.identifier('prototype')
+              t.memberExpression(
+                classAstRef, 
+                t.identifier('prototype')
+              ), 
+              t.identifier('$slotViews')
             ),
-            t.identifier('$slotViews')
+            t.identifier(`slotViews${index}`)
           )
         )
-      ));
-    } else {
-      astBody.push(isSlotFallback ? t.expressionStatement(
-        t.assignmentExpression(
-          '=',
-          t.identifier(ELEMENT_PREFIX + index),
-          t.newExpression(t.identifier(elementName), [])
+      );
+
+      astBody.push(...this.getComponentInitializationAstBody(elementIdentifier, astNewExpression, isSlotFallback));
+
+      astBody.push(
+        t.expressionStatement(
+          t.unaryExpression(
+            'delete',
+            t.memberExpression(
+              t.memberExpression(
+                classAstRef,
+                t.identifier('prototype')
+              ),
+              t.identifier('$slotViews')
+            )
+          )
         )
-      ) : t.variableDeclaration(
+      );
+    } else {
+      astBody.push(...this.getComponentInitializationAstBody(elementIdentifier, t.newExpression(t.identifier(elementName), []), isSlotFallback));
+    }
+
+    return astBody;
+  }
+
+  private getComponentInitializationAstBody(elementIdentifier: t.Identifier, astNewStatement: t.Expression, isSlotFallback: boolean): Array<t.Expression | t.Statement> {
+    const astBody = [];
+
+    if (isSlotFallback) {
+      astBody.push(
+        t.expressionStatement(
+          t.assignmentExpression(
+            '=',
+            elementIdentifier,
+            astNewStatement
+          )
+        ),
+        t.expressionStatement(
+          t.callExpression(
+            t.memberExpression(
+              t.identifier('fallbackViews'),
+              t.identifier('push')
+            ),
+            [
+              elementIdentifier
+            ]
+          )
+        )
+      );
+    } else {
+      astBody.push(t.variableDeclaration(
         'let',
         [
           t.variableDeclarator(
-            t.identifier(ELEMENT_PREFIX + index),
-            t.newExpression(t.identifier(elementName), [])
+            elementIdentifier,
+            astNewStatement
           )
         ]
       ));
     }
-
     return astBody;
   }
 
