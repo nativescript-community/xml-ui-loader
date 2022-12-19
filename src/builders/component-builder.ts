@@ -627,12 +627,17 @@ export class ComponentBuilder {
   }
 
   private finalize(): void {
+    const astBody = [];
+
     // Core modules barrel
     const usedTagNames = Array.from(this.usedNSTags).sort();
 
     this.astConstructorBody.unshift(
       t.variableDeclaration('let', [
-        t.variableDeclarator(t.identifier('customModules'), t.objectExpression(this.astCustomModuleProperties))
+        t.variableDeclarator(
+          t.identifier('customModules'),
+          t.objectExpression(this.astCustomModuleProperties)
+        )
       ])
     );
 
@@ -652,35 +657,69 @@ export class ComponentBuilder {
           )
         )
       ),
-      t.returnStatement(t.identifier(ELEMENT_PREFIX + 0)));
+      t.returnStatement(
+        t.identifier(ELEMENT_PREFIX + 0)
+      )
+    );
 
-    this.moduleAst = t.program([
-      // Imports
+    // Imports
+    astBody.push(
       t.variableDeclaration('let', [
-        t.variableDeclarator(t.objectPattern([
-          t.objectProperty(t.identifier('resolveModuleName'), t.identifier('resolveModuleName'), false, true)
-        ]), t.callExpression(t.identifier('require'), [
-          t.stringLiteral('@nativescript/core/module-name-resolver')
-        ]))
-      ]),
+        t.variableDeclarator(
+          t.objectPattern([
+            t.objectProperty(
+              t.identifier('resolveModuleName'),
+              t.identifier('resolveModuleName'),
+              false,
+              true
+            )
+          ]),
+          t.callExpression(
+            t.identifier('require'), [
+              t.stringLiteral('@nativescript/core/module-name-resolver')
+            ]
+          )
+        )
+      ])
+    );
+
+    usedTagNames.length && astBody.push(
       t.variableDeclaration('let', [
-        t.variableDeclarator(t.objectPattern(
-          usedTagNames.map(tagName => t.objectProperty(
-            t.identifier(tagName),
-            t.identifier(tagName),
-            false,
-            true
-          ))
-        ), t.callExpression(t.identifier('require'), [
-          t.stringLiteral('@nativescript/core/ui')
-        ]))
-      ]),
+        t.variableDeclarator(
+          t.objectPattern(
+            usedTagNames.map(tagName => t.objectProperty(
+              t.identifier(tagName),
+              t.identifier(tagName),
+              false,
+              true
+            ))
+          ),
+          t.callExpression(
+            t.identifier('require'), [
+              t.stringLiteral('@nativescript/core/ui')
+            ]
+          )
+        )
+      ])
+    );
+
+    astBody.push(
       t.variableDeclaration('let', [
-        t.variableDeclarator(t.objectPattern([
-          t.objectProperty(t.identifier('setPropertyValue'), t.identifier('setPropertyValue'), false, true)
-        ]), t.callExpression(t.identifier('require'), [
-          t.stringLiteral('@nativescript/core/ui/builder/component-builder')
-        ]))
+        t.variableDeclarator(
+          t.objectPattern([
+            t.objectProperty(
+              t.identifier('setPropertyValue'),
+              t.identifier('setPropertyValue'),
+              false,
+              true
+            )
+          ]),
+          t.callExpression(
+            t.identifier('require'), [
+              t.stringLiteral('@nativescript/core/ui/builder/component-builder')
+            ]
+          )
+        )
       ]),
       ...this.astCustomModulesRegister,
       // Class
@@ -711,7 +750,9 @@ export class ComponentBuilder {
           t.booleanLiteral(true)
         )
       )
-    ], [], 'module');
+    );
+    
+    this.moduleAst = t.program(astBody, [], 'module');
   }
 
   private isClosingTag(closingTagName: string, openTagInfo: TagInfo): boolean {
