@@ -116,7 +116,8 @@ export class ComponentBuilder {
   private usedNSTags = new Set<string>();
 
   private options: ComponentBuilderOptions;
-  private moduleDirPath: string = '';
+  private componentName: string;
+  private moduleDirPath: string;
 
   // Keep counter for the case of platform tags being inside platform tags
   private unsupportedPlatformTagCount: number = 0;
@@ -127,7 +128,6 @@ export class ComponentBuilder {
   private isInSlotFallbackScope: boolean = false;
 
   private moduleAst: t.Program;
-  private classAst: t.ClassDeclaration;
   private astConstructorBody: Array<t.Statement> = [];
   private astCustomModuleProperties: Array<t.ObjectProperty> = [];
   private astCustomModulesRegister: Array<t.Statement> = [];
@@ -137,11 +137,10 @@ export class ComponentBuilder {
     const componentName = pascalCase(name);
 
     this.options = options;
+    this.componentName = componentName;
     this.moduleDirPath = dir;
     
     options.moduleRelativePath = options.moduleRelativePath.substring(0, options.moduleRelativePath.length - ext.length);
-
-    this.initialize(componentName);
   }
 
   public handleOpenTag(tagName: string, attributes): void {
@@ -627,14 +626,6 @@ export class ComponentBuilder {
     return this.pathsToResolve;
   }
 
-  private initialize(componentName: string): void {
-    this.classAst = t.classDeclaration(t.identifier(componentName), null, t.classBody([
-      t.classMethod('constructor', t.identifier('constructor'), [
-        t.assignmentPattern(t.identifier('moduleExportsFallback'), t.nullLiteral())
-      ], t.blockStatement(this.astConstructorBody))
-    ]));
-  }
-
   private finalize(): void {
     // Core modules barrel
     const usedTagNames = Array.from(this.usedNSTags).sort();
@@ -693,12 +684,28 @@ export class ComponentBuilder {
       ]),
       ...this.astCustomModulesRegister,
       // Class
-      t.exportDefaultDeclaration(this.classAst),
+      t.exportDefaultDeclaration(
+        t.classDeclaration(
+          t.identifier(this.componentName),
+          null,
+          t.classBody([
+            t.classMethod('constructor',
+              t.identifier('constructor'), [
+                t.assignmentPattern(
+                  t.identifier('moduleExportsFallback'),
+                  t.nullLiteral()
+                )
+              ],
+              t.blockStatement(this.astConstructorBody)
+            )
+          ])
+        )
+      ),
       t.expressionStatement(
         t.assignmentExpression(
           '=',
           t.memberExpression(
-            t.identifier(this.classAst.id.name),
+            t.identifier(this.componentName),
             t.identifier('isXMLComponent')
           ),
           t.booleanLiteral(true)
@@ -853,7 +860,7 @@ export class ComponentBuilder {
         )
       );
 
-      astBody.push(...this.getComponentInitializationAstBody(elementIdentifier, astNewExpression, isSlotFallback));
+      astBody.push(...this.generateComponentInitializationAstBody(elementIdentifier, astNewExpression, isSlotFallback));
 
       astBody.push(
         t.expressionStatement(
@@ -870,13 +877,13 @@ export class ComponentBuilder {
         )
       );
     } else {
-      astBody.push(...this.getComponentInitializationAstBody(elementIdentifier, t.newExpression(t.identifier(elementName), []), isSlotFallback));
+      astBody.push(...this.generateComponentInitializationAstBody(elementIdentifier, t.newExpression(t.identifier(elementName), []), isSlotFallback));
     }
 
     return astBody;
   }
 
-  private getComponentInitializationAstBody(elementIdentifier: t.Identifier, astNewStatement: t.Expression, isSlotFallback: boolean): Array<t.Expression | t.Statement> {
+  private generateComponentInitializationAstBody(elementIdentifier: t.Identifier, astNewStatement: t.Expression, isSlotFallback: boolean): Array<t.Expression | t.Statement> {
     const astBody = [];
 
     if (isSlotFallback) {
