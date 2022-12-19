@@ -27,7 +27,7 @@ const { output } = transformIntoAST(content, {
 
 if (output) {
   // eslint-disable-next-line no-console
-  console.log(process.argv.includes('--ast') ? highlight(JSON.stringify(output), {
+  console.log(process.argv.includes('--ast') ? highlight(JSON.stringify(output, null, 2), {
     language: 'json'
   }) : highlight(generate(output).code, {
     language: 'js'
