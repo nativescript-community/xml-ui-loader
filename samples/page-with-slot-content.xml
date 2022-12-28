@@ -9,6 +9,7 @@
     <slotContent>
       <Label slot="title" text="Login"/>
       <TextField/>
+      <slot/> <!-- Slot inside slot concept -->
       <TextField secure="true"/>
       <Button slot="footer" text="Submit"/>
     </slotContent>

@@ -44,6 +44,7 @@ interface TagInfo {
     body: Array<t.Expression | t.Statement>;
     spliceIndex: number; // This index is often useful for prepending or appending AST content
   };
+  slotChildIndices: Array<number>;
   slotMap?: Map<string, Array<number>>;
   isCustomComponent: boolean;
   isParentForSlots: boolean;
@@ -112,7 +113,6 @@ export function transformIntoAST(content: string, builderOpts: ComponentBuilderO
 export class ComponentBuilder {
   private openTags = new Array<TagInfo>();
   private pathsToResolve = new Array<string>();
-  private pendingSlotContent = new Array<string>();
   private usedNSTags = new Set<string>();
 
   private options: ComponentBuilderOptions;
@@ -182,6 +182,7 @@ export class ComponentBuilder {
       type: null,
       nestedTagCount: 0,
       childIndices: [],
+      slotChildIndices: [],
       ast: {
         body: null,
         spliceIndex: -1
@@ -299,6 +300,11 @@ export class ComponentBuilder {
       let astBody;
       if (openTagInfo != null) {
         astBody = openTagInfo.ast.body;
+
+        // We have to keep a list of child indices that are actually slots
+        if (tagName === SpecialTags.SLOT) {
+          openTagInfo.slotChildIndices.push(this.treeIndex);
+        }
 
         if (openTagInfo.tagName === SpecialTags.SLOT_CONTENT) {
           const slotName = attributes.slot || 'default';
@@ -480,54 +486,44 @@ export class ComponentBuilder {
             for (const childIndex of childIndices) {
               const instanceIdentifier = t.identifier(ELEMENT_PREFIX + childIndex);
 
-              // Check if element is an array in case it's a slot that actually targets another slot or undefined in case that slot is empty
-              openTagInfo.ast.body.push(
-                t.ifStatement(
-                  instanceIdentifier,
-                  t.blockStatement([
-                    t.ifStatement(
+              // Child is a slot element so we expect instance to be null or array
+              if (openTagInfo.slotChildIndices.includes(childIndex)) {
+                openTagInfo.ast.body.push(
+                  t.expressionStatement(
+                    t.logicalExpression(
+                      '&&',
+                      instanceIdentifier,
                       t.callExpression(
                         t.memberExpression(
-                          t.identifier('Array'),
-                          t.identifier('isArray')
+                          t.memberExpression(
+                            t.identifier(`slotViews${openTagInfo.index}`),
+                            t.identifier(slotName)
+                          ),
+                          t.identifier('push')
                         ), [
-                          instanceIdentifier
+                          t.spreadElement(instanceIdentifier)
                         ]
-                      ),
-                      t.blockStatement([
-                        t.expressionStatement(
-                          t.callExpression(
-                            t.memberExpression(
-                              t.memberExpression(
-                                t.identifier(`slotViews${openTagInfo.index}`),
-                                t.identifier(slotName)
-                              ),
-                              t.identifier('push')
-                            ), [
-                              t.spreadElement(instanceIdentifier)
-                            ]
-                          )
-                        )
-                      ]),
-                      t.blockStatement([
-                        t.expressionStatement(
-                          t.callExpression(
-                            t.memberExpression(
-                              t.memberExpression(
-                                t.identifier(`slotViews${openTagInfo.index}`),
-                                t.identifier(slotName)
-                              ),
-                              t.identifier('push')
-                            ), [
-                              instanceIdentifier
-                            ]
-                          )
-                        )
-                      ])
+                      )
                     )
-                  ])
-                )
-              );
+                  )
+                );
+              } else {
+                openTagInfo.ast.body.push(
+                  t.expressionStatement(
+                    t.callExpression(
+                      t.memberExpression(
+                        t.memberExpression(
+                          t.identifier(`slotViews${openTagInfo.index}`),
+                          t.identifier(slotName)
+                        ),
+                        t.identifier('push')
+                      ), [
+                        instanceIdentifier
+                      ]
+                    )
+                  )
+                );
+              }
             }
           }
 
