@@ -44,7 +44,7 @@ This loader requires a new webpack configuration:
 ```javascript
 const webpack = require('@nativescript/webpack');
 const { getEntryDirPath, getPlatformName } = require('@nativescript/webpack/dist/helpers/platform');
-const { chainLoaderConfiguration } = require("@nativescript-community/xml-ui-loader/dist/helpers/webpack");
+const { chainLoaderConfiguration } = require("@nativescript-community/xml-ui-loader/dist/helpers");
 
 module.exports = (env) => {
   webpack.init(env);
@@ -61,6 +61,19 @@ module.exports = (env) => {
 
   return webpack.resolveConfig();
 };
+```
+
+There are also few optional formatting mechanisms that are useful for applying output customizations.
+```javascript
+chainLoaderConfiguration(config, {
+  appPath: getEntryDirPath(),
+  platform: getPlatformName(),
+  // Format attribute value
+  attributeValueFormatter: (value, attributeName, tagName, attributes) => value.toUpperCase(),
+  // Manage AST result
+  transformAst: (ast, generateFunc) => generateFunc(ast).code
+});
+
 ```
 
 
