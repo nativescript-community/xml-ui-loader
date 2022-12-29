@@ -472,6 +472,15 @@ export class ComponentBuilder {
           const parentTagInfo = this.openTags[this.openTags.length - 2];
 
           for (const [slotName, childIndices] of openTagInfo.slotMap) {
+            const arrayAstBody = [];
+            for (const childIndex of childIndices) {
+              const instanceIdentifier = t.identifier(ELEMENT_PREFIX + childIndex);
+              arrayAstBody.push(
+                // Slots accept an array of elements so we spread instance
+                openTagInfo.slotChildIndices.includes(childIndex) ? t.spreadElement(instanceIdentifier) : instanceIdentifier
+              );
+            }
+
             openTagInfo.ast.body.push(
               t.expressionStatement(
                 t.assignmentExpression(
@@ -480,53 +489,10 @@ export class ComponentBuilder {
                     t.identifier(`slotViews${openTagInfo.index}`),
                     t.identifier(slotName)
                   ),
-                  t.arrayExpression([])
+                  t.arrayExpression(arrayAstBody)
                 )
               )
             );
-
-            for (const childIndex of childIndices) {
-              const instanceIdentifier = t.identifier(ELEMENT_PREFIX + childIndex);
-
-              // Child is a slot so we expect instance to be null or array
-              if (openTagInfo.slotChildIndices.includes(childIndex)) {
-                openTagInfo.ast.body.push(
-                  t.expressionStatement(
-                    t.logicalExpression(
-                      '&&',
-                      instanceIdentifier,
-                      t.callExpression(
-                        t.memberExpression(
-                          t.memberExpression(
-                            t.identifier(`slotViews${openTagInfo.index}`),
-                            t.identifier(slotName)
-                          ),
-                          t.identifier('push')
-                        ), [
-                          t.spreadElement(instanceIdentifier)
-                        ]
-                      )
-                    )
-                  )
-                );
-              } else {
-                openTagInfo.ast.body.push(
-                  t.expressionStatement(
-                    t.callExpression(
-                      t.memberExpression(
-                        t.memberExpression(
-                          t.identifier(`slotViews${openTagInfo.index}`),
-                          t.identifier(slotName)
-                        ),
-                        t.identifier('push')
-                      ), [
-                        instanceIdentifier
-                      ]
-                    )
-                  )
-                );
-              }
-            }
           }
 
           // Put slot ast content into parent body
@@ -552,7 +518,7 @@ export class ComponentBuilder {
             this.isInSlotFallbackScope = false;
           } else {
             if (openTagInfo.childIndices.length) {
-              // Slots accept an array of elements so we spread it
+              // Slots accept an array of elements so we spread instance
               const childrenAstElements = openTagInfo.childIndices.map(treeIndex => openTagInfo.slotChildIndices.includes(treeIndex) ? 
                 t.spreadElement(t.identifier(ELEMENT_PREFIX + treeIndex)) : t.identifier(ELEMENT_PREFIX + treeIndex));
               openTagInfo.ast.body.push(
