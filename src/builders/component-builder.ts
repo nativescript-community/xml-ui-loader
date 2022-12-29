@@ -42,7 +42,7 @@ interface TagInfo {
   childIndices: Array<number>;
   ast: {
     body: Array<t.Expression | t.Statement>;
-    spliceIndex: number; // This index is often useful for prepending or appending AST content
+    injectIndex: number; // This index is useful for prepending slot AST content
   };
   slotChildIndices: Array<number>;
   slotMap?: Map<string, Array<number>>;
@@ -185,7 +185,7 @@ export class ComponentBuilder {
       slotChildIndices: [],
       ast: {
         body: null,
-        spliceIndex: -1
+        injectIndex: -1
       },
       isCustomComponent: false,
       isParentForSlots: false,
@@ -199,10 +199,7 @@ export class ComponentBuilder {
         newTagInfo.index = openTagInfo.index;
         newTagInfo.tagName = parentTagName;
         newTagInfo.propertyName = tagPropertyName;
-        newTagInfo.ast = {
-          body: [],
-          spliceIndex: 0
-        };
+        newTagInfo.ast.body = [];
 
         if (tagPropertyName.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE;
@@ -247,10 +244,7 @@ export class ComponentBuilder {
       if (openTagInfo != null) {
         newTagInfo.index = openTagInfo.index;
         newTagInfo.slotMap = new Map();
-        newTagInfo.ast = {
-          body: [],
-          spliceIndex: 0
-        };
+        newTagInfo.ast.body = [];
 
         openTagInfo.isParentForSlots = true;
       } else {
@@ -264,10 +258,7 @@ export class ComponentBuilder {
 
           newTagInfo.index = openTagInfo.index;
           newTagInfo.type = ElementType.TEMPLATE;
-          newTagInfo.ast = {
-            body: [],
-            spliceIndex: 0
-          };
+          newTagInfo.ast.body = [];
 
           openTagInfo.ast.body.push(
             t.objectExpression([
@@ -297,9 +288,9 @@ export class ComponentBuilder {
 
       !isSlotFallback && this.treeIndex++;
 
-      let astBody;
+      let parentAstBody;
       if (openTagInfo != null) {
-        astBody = openTagInfo.ast.body;
+        parentAstBody = openTagInfo.ast.body;
 
         // We have to keep a list of child indices that are actually slots
         if (tagName === SpecialTags.SLOT) {
@@ -318,7 +309,7 @@ export class ComponentBuilder {
           openTagInfo.childIndices.push(this.treeIndex);
         }
       } else {
-        astBody = this.astConstructorBody;
+        parentAstBody = this.astConstructorBody;
 
         // Resolve js and css based on first element
         this.astConstructorBody.push(...this.generateScriptAndStyleBindingAst(attributes));
@@ -327,8 +318,8 @@ export class ComponentBuilder {
       newTagInfo.index = this.treeIndex;
       newTagInfo.type = ElementType.VIEW;
       newTagInfo.ast = {
-        body: astBody,
-        spliceIndex: astBody.length
+        body: parentAstBody,
+        injectIndex: parentAstBody.length
       };
 
       if (tagName === SpecialTags.SLOT) {
@@ -341,8 +332,19 @@ export class ComponentBuilder {
           t.identifier(name)
         );
 
+        newTagInfo.ast.body = [
+          t.variableDeclaration(
+            'let',
+            [
+              t.variableDeclarator(
+                t.identifier('fallbackViews'),
+                t.arrayExpression()
+              )
+            ]
+          )];
+
         // Consume slot views if any
-        newTagInfo.ast.body.push(
+        parentAstBody.push(
           t.variableDeclaration(
             'let',
             [
@@ -368,10 +370,10 @@ export class ComponentBuilder {
                   true
                 )
               )
-            ])
+            ]),
+            t.blockStatement(<t.Statement[]>newTagInfo.ast.body)
           )
         );
-        newTagInfo.ast.spliceIndex = newTagInfo.ast.body.length;
 
         this.isInSlotFallbackScope = true;
       } else {
@@ -392,7 +394,7 @@ export class ComponentBuilder {
               ]
             )
           );
-          newTagInfo.ast.spliceIndex = newTagInfo.ast.body.length;
+          newTagInfo.ast.injectIndex = newTagInfo.ast.body.length;
         } else {
           // Store tags that are actually nativescript core components
           this.usedNSTags.add(tagName);
@@ -486,7 +488,7 @@ export class ComponentBuilder {
             for (const childIndex of childIndices) {
               const instanceIdentifier = t.identifier(ELEMENT_PREFIX + childIndex);
 
-              // Child is a slot element so we expect instance to be null or array
+              // Child is a slot so we expect instance to be null or array
               if (openTagInfo.slotChildIndices.includes(childIndex)) {
                 openTagInfo.ast.body.push(
                   t.expressionStatement(
@@ -528,7 +530,7 @@ export class ComponentBuilder {
           }
 
           // Put slot ast content into parent body
-          parentTagInfo.ast.body.splice(parentTagInfo.ast.spliceIndex, 0, ...openTagInfo.ast.body);
+          parentTagInfo.ast.body.splice(parentTagInfo.ast.injectIndex, 0, ...openTagInfo.ast.body);
         } else if (tagName === SpecialTags.TEMPLATE) {
           const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
           openTagInfo.ast.body.push(t.returnStatement(childIndex != null ? t.identifier(ELEMENT_PREFIX + childIndex) : t.nullLiteral()));
@@ -538,42 +540,21 @@ export class ComponentBuilder {
           }
 
           if (tagName === SpecialTags.SLOT) {
-            if (openTagInfo.ast.body.length > openTagInfo.ast.spliceIndex) {
-              const slotIfStatement = openTagInfo.ast.body[openTagInfo.ast.spliceIndex - 1];
-              if (t.isIfStatement(slotIfStatement)) {
-                const slotFallbackAstBody = openTagInfo.ast.body.splice(openTagInfo.ast.spliceIndex);
-
-                slotFallbackAstBody.unshift(
-                  t.variableDeclaration(
-                    'let',
-                    [
-                      t.variableDeclarator(
-                        t.identifier('fallbackViews'),
-                        t.arrayExpression()
-                      )
-                    ]
-                  )
-                );
-                slotFallbackAstBody.push(
-                  t.expressionStatement(
-                    t.assignmentExpression(
-                      '=',
-                      t.identifier(ELEMENT_PREFIX + openTagInfo.index),
-                      t.identifier('fallbackViews')
-                    )
-                  )
-                );
-
-                slotIfStatement.alternate = t.blockStatement(<t.Statement[]>slotFallbackAstBody);
-              } else {
-                throw new Error('Invalid slot syntax for slot fallback views');
-              }
-            }
-
+            openTagInfo.ast.body.push(
+              t.expressionStatement(
+                t.assignmentExpression(
+                  '=',
+                  t.identifier(ELEMENT_PREFIX + openTagInfo.index),
+                  t.identifier('fallbackViews')
+                )
+              )
+            );
             this.isInSlotFallbackScope = false;
           } else {
             if (openTagInfo.childIndices.length) {
-              const childrenAstElements = openTagInfo.childIndices.map(treeIndex => t.identifier(ELEMENT_PREFIX + treeIndex));
+              // Slots accept an array of elements so we spread it
+              const childrenAstElements = openTagInfo.childIndices.map(treeIndex => openTagInfo.slotChildIndices.includes(treeIndex) ? 
+                t.spreadElement(t.identifier(ELEMENT_PREFIX + treeIndex)) : t.identifier(ELEMENT_PREFIX + treeIndex));
               openTagInfo.ast.body.push(
                 t.expressionStatement(
                   t.callExpression(
