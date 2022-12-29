@@ -5,20 +5,13 @@ global.xmlCompiler = {
     if (parent._addChildFromBuilder) {
       for (const child of children) {
         if (child) {
-          if (Array.isArray(child)) {
-            for (const c of child) {
-              parent._addChildFromBuilder(c.constructor.name, c);
-            }
-          } else {
-            parent._addChildFromBuilder(child.constructor.name, child);
-          }
+          parent._addChildFromBuilder(child.constructor.name, child);
         }
       }
     } else if (propertyName != null) {
       // Note: NativeScript UI plugins make use of Property valueChanged event to manipulate views
       if (children.length) {
-        const lastChild = children[children.length - 1];
-        parent[propertyName] = Array.isArray(lastChild) ? lastChild[lastChild.length - 1] : lastChild;
+        parent[propertyName] = children[children.length - 1];
       }
     } else {
       throw new Error(`Component ${parent.constructor.name} has no support for nesting views`);
