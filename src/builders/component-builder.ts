@@ -487,7 +487,8 @@ export class ComponentBuilder {
                   '=',
                   t.memberExpression(
                     t.identifier(`slotViews${openTagInfo.index}`),
-                    t.identifier(slotName)
+                    t.stringLiteral(slotName),
+                    true
                   ),
                   t.arrayExpression(arrayAstBody)
                 )
@@ -1018,7 +1019,7 @@ export class ComponentBuilder {
 
     this.astCustomModuleProperties.push(
       t.objectProperty(
-        t.identifier(propertyName),
+        t.stringLiteral(propertyName),
         t.callExpression(
           t.memberExpression(
             t.memberExpression(
