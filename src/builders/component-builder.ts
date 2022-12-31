@@ -199,10 +199,10 @@ export class ComponentBuilder {
         newTagInfo.index = openTagInfo.index;
         newTagInfo.tagName = parentTagName;
         newTagInfo.propertyName = tagPropertyName;
-        newTagInfo.ast.body = [];
 
         if (tagPropertyName.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE;
+          newTagInfo.ast.body = [];
 
           openTagInfo.ast.body.push(
             t.expressionStatement(
@@ -221,6 +221,7 @@ export class ComponentBuilder {
           );
         } else if (tagPropertyName.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE_ARRAY;
+          newTagInfo.ast.body = [];
           
           openTagInfo.ast.body.push(
             t.expressionStatement(
@@ -236,6 +237,7 @@ export class ComponentBuilder {
           );
         } else {
           newTagInfo.type = ElementType.COMMON_PROPERTY;
+          newTagInfo.ast.body = openTagInfo.ast.body;
         }
       } else {
         throw new Error(`Property '${tagName}' is not suitable for parent '${openTagInfo.tagName}'`);
