@@ -329,7 +329,8 @@ export class ComponentBuilder {
             t.thisExpression(),
             t.identifier('$slotViews')
           ),
-          t.identifier(name)
+          t.stringLiteral(name),
+          true
         );
 
         newTagInfo.ast.body = [
