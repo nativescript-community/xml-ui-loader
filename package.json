@@ -1,6 +1,6 @@
 {
   "name": "@nativescript-community/xml-ui-loader",
-  "version": "2.0.4",
+  "version": "3.0.0-alpha.0",
   "description": "A webpack loader that works as an ahead-of-time (AOT) compiler which turns XML content into JavaScript during the build phase.",
   "main": "dist/index.js",
   "files": [
@@ -31,17 +31,17 @@
   },
   "homepage": "https://github.com/nativescript-community/xml-ui-loader#readme",
   "dependencies": {
-    "@babel/generator": "^7.20.5",
-    "@babel/types": "^7.20.5",
+    "@babel/generator": "^7.20.7",
+    "@babel/types": "^7.20.7",
     "change-case": "^4.1.2",
     "htmlparser2": "^8.0.1"
   },
   "devDependencies": {
-    "@types/node": "^18.8.3",
-    "@typescript-eslint/eslint-plugin": "^5.35.1",
-    "@typescript-eslint/parser": "^5.35.1",
+    "@types/node": "^18.11.18",
+    "@typescript-eslint/eslint-plugin": "^5.47.1",
+    "@typescript-eslint/parser": "^5.47.1",
     "cli-highlight": "^2.1.11",
-    "eslint": "^8.23.0",
-    "typescript": "^4.7.4"
+    "eslint": "^8.31.0",
+    "typescript": "^4.9.4"
   }
 }
