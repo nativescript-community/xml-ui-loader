@@ -63,15 +63,17 @@ module.exports = (env) => {
 };
 ```
 
-There are also few optional formatting mechanisms that are useful for applying output customizations.
+There are also few preprocessing options that are useful for applying output customizations.
 ```javascript
 chainLoaderConfiguration(config, {
   appPath: getEntryDirPath(),
   platform: getPlatformName(),
-  // Format attribute value
-  attributeValueFormatter: (value, attributeName, tagName, attributes) => value.toUpperCase(),
-  // Manage AST result
-  transformAst: (ast, generateFunc) => generateFunc(ast).code
+  preprocess: {
+    // Format attribute value
+    attributeValueFormatter: (value, attributeName, tagName, attributes) => value.toUpperCase(),
+    // Manage AST result
+    transformAst: (ast, generateFunc) => generateFunc(ast).code
+  }
 });
 
 ```
