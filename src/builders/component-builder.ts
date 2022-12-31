@@ -771,9 +771,6 @@ export class ComponentBuilder {
   }
 
   private getAstForProperty(index: number, propertyName: string, propertyValue: string): t.ExpressionStatement {
-    // This is necessary for proper string escape
-    const attrValue = propertyValue.replaceAll('\'', '\\\'');
-
     let propertyAst: t.Expression = t.identifier(ELEMENT_PREFIX + index);
     if (propertyName.indexOf('.') !== -1) {
       const properties = propertyName.split('.');
@@ -800,7 +797,7 @@ export class ComponentBuilder {
             t.nullLiteral(),
             t.identifier('moduleExports'),
             t.stringLiteral(propertyName),
-            t.stringLiteral(attrValue)
+            t.stringLiteral(propertyValue)
           ]
         )
       )
