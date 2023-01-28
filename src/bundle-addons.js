@@ -1,4 +1,4 @@
-let { Application } = require('@nativescript/core');
+let { Application, ViewBase } = require('@nativescript/core');
 let { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');
 let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
 
@@ -24,12 +24,17 @@ global.simpleUI = {
     
     let parent = view.parent;
     while (parent && cssTypes.length) {
-      let index = cssTypes.indexOf(parent.cssType);
+      const index = cssTypes.findIndex(cssType => cssType.toLowerCase() === parent.cssType);
       if (index >= 0) {
-        cssTypes.splice(index, 1);
-        instance[parent.cssType] = parent.bindingContext;
+        const cssType = cssTypes.splice(index, 1);
+        instance[cssType[0]] = parent.bindingContext;
       }
       parent = parent.parent;
+    }
+
+    if (cssTypes.length && !view.isLoaded) {
+      view.off(ViewBase.loadedEvent, global.simpleUI.notifyViewBindingContextChange);
+      view.once(ViewBase.loadedEvent, global.simpleUI.notifyViewBindingContextChange);
     }
     return instance;
   },
@@ -83,6 +88,16 @@ global.simpleUI = {
       return componentModule;
     }
     return null;
+  },
+  notifyViewBindingContextChange: function(args) {
+    const view = args.object;
+    view.notify({
+      object: view,
+      eventName: 'bindingContextChange',
+      propertyName: 'bindingContext',
+      value: view.bindingContext,
+      oldValue: view.bindingContext,
+    });
   },
   setPropertyValue(owner, propertyName, propertyValue, moduleExports) {
     let instance = owner;

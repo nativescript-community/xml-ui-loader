@@ -1309,6 +1309,18 @@ export class ComponentBuilder {
             )
           ]
         ),
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier('isBindingContextChanged'),
+              t.binaryExpression(
+                '!==',
+                t.identifier('oldBindingContext'),
+                t.identifier('bindingContext')
+              )
+            )
+          ]
+        ),
         t.ifStatement(
           t.binaryExpression(
             '!=',
@@ -1335,10 +1347,14 @@ export class ComponentBuilder {
               )
             ),
             t.ifStatement(
-              t.binaryExpression(
-                'instanceof',
-                t.identifier('oldBindingContext'),
-                t.identifier('Observable')
+              t.logicalExpression(
+                '&&',
+                t.identifier('isBindingContextChanged'),
+                t.binaryExpression(
+                  'instanceof',
+                  t.identifier('oldBindingContext'),
+                  t.identifier('Observable')
+                )
               ),
               t.blockStatement([
                 t.expressionStatement(
@@ -1453,10 +1469,14 @@ export class ComponentBuilder {
               )
             ),
             t.ifStatement(
-              t.binaryExpression(
-                'instanceof',
-                t.identifier('bindingContext'),
-                t.identifier('Observable')
+              t.logicalExpression(
+                '&&',
+                t.identifier('isBindingContextChanged'),
+                t.binaryExpression(
+                  'instanceof',
+                  t.identifier('bindingContext'),
+                  t.identifier('Observable')
+                )
               ),
               t.blockStatement([
                 t.expressionStatement(
