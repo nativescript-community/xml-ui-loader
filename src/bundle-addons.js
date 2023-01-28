@@ -1,6 +1,8 @@
-var { resolveModuleName } = require('@nativescript/core/module-name-resolver');
+let { Application } = require('@nativescript/core');
+let { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');
+let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
 
-global.xmlCompiler = {
+global.simpleUI = {
   addViewsFromBuilder: function(parent, children, propertyName = null) {
     if (parent._addChildFromBuilder) {
       for (const child of children) {
@@ -17,6 +19,56 @@ global.xmlCompiler = {
       throw new Error(`Component ${parent.constructor.name} has no support for nesting views`);
     }
   },
+  createParentsBindingInstance(view, cssTypes) {
+    const instance = {};
+    
+    let parent = view.parent;
+    while (parent && cssTypes.length) {
+      let index = cssTypes.indexOf(parent.cssType);
+      if (index >= 0) {
+        cssTypes.splice(index, 1);
+        instance[parent.cssType] = parent.bindingContext;
+      }
+      parent = parent.parent;
+    }
+    return instance;
+  },
+  getCompleteBindingSource(bindingContext, callback) {
+    const bindingResources = Application.getResources();
+    const addedBindingContextProperties = [];
+    let source;
+
+    // Ensure source is an object
+    if (bindingContext == null) {
+      source = {};
+    } else {
+      const type = typeof bindingContext;
+      if (type === 'number') {
+        source = new Number(bindingContext);
+      } else if (type === 'boolean') {
+        source = new Boolean(bindingContext);
+      } else if (type === 'string') {
+        source = new String(bindingContext);
+      } else {
+        source = bindingContext;
+      }
+    }
+
+    // Addition of application resources
+    for (let propertyName in bindingResources) {
+      if (!(propertyName in source)) {
+        source[propertyName] = bindingResources[propertyName];
+        addedBindingContextProperties.push(propertyName);
+      }
+    }
+
+    callback(source);
+
+    // Finally, perform a cleanup for view model
+    for (let propertyName of addedBindingContextProperties) {
+      delete source[propertyName];
+    }
+  },
   loadCustomModule: function(uri, ext) {
     if (ext) {
       uri = uri.substr(0, uri.length - (ext.length + 1));
@@ -31,5 +83,32 @@ global.xmlCompiler = {
       return componentModule;
     }
     return null;
+  },
+  setPropertyValue(owner, propertyName, propertyValue, moduleExports) {
+    let instance = owner;
+    if (propertyName.indexOf('.') !== -1) {
+      const properties = propertyName.split('.');
+
+      for (let i = 0, length = properties.length - 1; i < length; i++) {
+        if (instance != null) {
+          instance = instance[properties[i]];
+        }
+      }
+      propertyName = properties[properties.length - 1];
+    }
+    
+    if (instance != null) {
+      if (isEventOrGesture(propertyName, instance)) {
+        // Get the event handler from component module exports
+        const handler = moduleExports[propertyValue];
+    
+        // Check if the handler is function and add it to the instance for specified event name
+        if (typeof handler === 'function') {
+          instance.on(propertyName, handler);
+        }
+      } else {
+        instance[propertyName] = propertyValue;
+      }
+    }
   }
 };

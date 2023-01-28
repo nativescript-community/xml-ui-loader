@@ -32,6 +32,8 @@
   "homepage": "https://github.com/nativescript-community/xml-ui-loader#readme",
   "dependencies": {
     "@babel/generator": "^7.20.7",
+    "@babel/parser": "^7.20.7",
+    "@babel/traverse": "^7.20.10",
     "@babel/types": "^7.20.7",
     "change-case": "^4.1.2",
     "htmlparser2": "^8.0.1"
