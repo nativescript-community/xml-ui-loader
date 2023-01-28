@@ -610,6 +610,35 @@ export class ComponentBuilder {
         t.variableDeclarator(
           t.objectPattern([
             t.objectProperty(
+              t.identifier('addWeakEventListener'),
+              t.identifier('addWeakEventListener'),
+              false,
+              true
+            ),
+            t.objectProperty(
+              t.identifier('Observable'),
+              t.identifier('Observable'),
+              false,
+              true
+            ),
+            t.objectProperty(
+              t.identifier('removeWeakEventListener'),
+              t.identifier('removeWeakEventListener'),
+              false,
+              true
+            )
+          ]),
+          t.callExpression(
+            t.identifier('require'), [
+              t.stringLiteral('@nativescript/core')
+            ]
+          )
+        )
+      ]),
+      t.variableDeclaration('let', [
+        t.variableDeclarator(
+          t.objectPattern([
+            t.objectProperty(
               t.identifier('resolveModuleName'),
               t.identifier('resolveModuleName'),
               false,
@@ -1074,13 +1103,13 @@ export class ComponentBuilder {
         this.astBindingCallbacksBody.push(
           this.generateBindingTargetAstCallback(bindingTargetPropertyCallbackName, <t.MemberExpression | t.OptionalMemberExpression>bindingOptions.astExpression)
         );
-      }
 
-      // These arguments are used for adding/removing event listeners for binding target properties
-      bindingTargetPropertyAstListenerArgs.push([
-        t.stringLiteral(`${bindingOptions.viewPropertyName}Change`),
-        t.identifier(bindingTargetPropertyCallbackName)
-      ]);
+        // These arguments are used for adding/removing event listeners for binding target properties
+        bindingTargetPropertyAstListenerArgs.push([
+          t.stringLiteral(`${bindingOptions.viewPropertyName}Change`),
+          t.identifier(bindingTargetPropertyCallbackName)
+        ]);
+      }
     }
 
     // View model -> view callback functions
@@ -1091,7 +1120,7 @@ export class ComponentBuilder {
     const bindingSourcePropertyAstCallbackPairs = t.variableDeclaration(
       'let', [
         t.variableDeclarator(
-          t.identifier(`${elementReference}BindingSourceCallbackPairs`),
+          t.identifier(`_${elementReference}BindingSourceCallbackPairs`),
           t.objectExpression(bindingSourcePropertyAstCallbacks)
         )
       ]
@@ -1185,41 +1214,53 @@ export class ComponentBuilder {
                       )
                     ]
                   ),
-                  t.expressionStatement(
-                    t.callExpression(
+                  t.ifStatement(
+                    t.binaryExpression(
+                      'in',
                       t.memberExpression(
-                        t.identifier(`${elementReference}BindingSourceCallbackPairs`),
-                        t.memberExpression(
-                          t.identifier('args'),
-                          t.identifier('propertyName')
-                        ),
-                        true
+                        t.identifier('args'),
+                        t.identifier('propertyName')
                       ),
-                      [
-                        t.identifier('view'),
-                        t.identifier(VIEW_MODEL_REFERENCE_NAME),
-                        t.objectExpression([
-                          t.objectProperty(
-                            t.identifier(VALUE_REFERENCE_NAME),
-                            t.identifier(VALUE_REFERENCE_NAME),
-                            false,
+                      t.identifier(`_${elementReference}BindingSourceCallbackPairs`)
+                    ),
+                    t.blockStatement([
+                      t.expressionStatement(
+                        t.callExpression(
+                          t.memberExpression(
+                            t.identifier(`_${elementReference}BindingSourceCallbackPairs`),
+                            t.memberExpression(
+                              t.identifier('args'),
+                              t.identifier('propertyName')
+                            ),
                             true
                           ),
-                          t.objectProperty(
-                            t.identifier(PARENT_REFERENCE_NAME),
-                            t.identifier(PARENT_REFERENCE_NAME),
-                            false,
-                            true
-                          ),
-                          t.objectProperty(
-                            t.identifier(PARENTS_REFERENCE_NAME),
-                            t.identifier(PARENTS_REFERENCE_NAME),
-                            false,
-                            true
-                          )
-                        ])
-                      ]
-                    )
+                          [
+                            t.identifier('view'),
+                            t.identifier(VIEW_MODEL_REFERENCE_NAME),
+                            t.objectExpression([
+                              t.objectProperty(
+                                t.identifier(VALUE_REFERENCE_NAME),
+                                t.identifier(VALUE_REFERENCE_NAME),
+                                false,
+                                true
+                              ),
+                              t.objectProperty(
+                                t.identifier(PARENT_REFERENCE_NAME),
+                                t.identifier(PARENT_REFERENCE_NAME),
+                                false,
+                                true
+                              ),
+                              t.objectProperty(
+                                t.identifier(PARENTS_REFERENCE_NAME),
+                                t.identifier(PARENTS_REFERENCE_NAME),
+                                false,
+                                true
+                              )
+                            ])
+                          ]
+                        )
+                      )
+                    ])
                   )
                 ])
               )
