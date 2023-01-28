@@ -2,6 +2,7 @@ import * as t from '@babel/types';
 import { pascalCase } from 'change-case';
 import { Parser } from 'htmlparser2';
 import { join, parse } from 'path';
+import { BindingBuilder, BindingOptions, PARENTS_REFERENCE_NAME, PARENT_REFERENCE_NAME, VALUE_REFERENCE_NAME, VIEW_MODEL_REFERENCE_NAME } from './binding-builder';
 import { AttributeValueFormatter } from '../helpers';
 
 const ELEMENT_PREFIX = 'el';
@@ -25,6 +26,11 @@ enum SpecialTags {
   TEMPLATE = 'template'
 }
 
+interface TagAstInfo {
+  body: Array<t.Expression | t.Statement>;
+  indexBeforeNewViewInstance: number; // This index is useful for things like prepending slot views
+}
+
 interface ComponentBuilderOptions {
   moduleRelativePath: string;
   platform: string;
@@ -40,10 +46,7 @@ interface TagInfo {
   type: ElementType;
   nestedTagCount: number;
   childIndices: Array<number>;
-  ast: {
-    body: Array<t.Expression | t.Statement>;
-    injectIndex: number; // This index is useful for prepending slot AST content
-  };
+  astInfo: TagAstInfo;
   slotChildIndices: Array<number>;
   slotMap?: Map<string, Array<number>>;
   isCustomComponent: boolean;
@@ -118,6 +121,7 @@ export class ComponentBuilder {
   private options: ComponentBuilderOptions;
   private componentName: string;
   private moduleDirPath: string;
+  private bindingBuilder: BindingBuilder;
 
   // Keep counter for the case of platform tags being inside platform tags
   private unsupportedPlatformTagCount: number = 0;
@@ -128,6 +132,7 @@ export class ComponentBuilder {
   private isInSlotFallbackScope: boolean = false;
 
   private moduleAst: t.Program;
+  private astBindingCallbacksBody: Array<t.Declaration> = [];
   private astConstructorBody: Array<t.Statement> = [];
   private astCustomModuleProperties: Array<t.ObjectProperty> = [];
   private astCustomModulesRegister: Array<t.Statement> = [];
@@ -139,6 +144,7 @@ export class ComponentBuilder {
     this.options = options;
     this.componentName = componentName;
     this.moduleDirPath = dir;
+    this.bindingBuilder = new BindingBuilder();
     
     options.moduleRelativePath = options.moduleRelativePath.substring(0, options.moduleRelativePath.length - ext.length);
   }
@@ -183,9 +189,9 @@ export class ComponentBuilder {
       nestedTagCount: 0,
       childIndices: [],
       slotChildIndices: [],
-      ast: {
+      astInfo: {
         body: null,
-        injectIndex: -1
+        indexBeforeNewViewInstance: -1
       },
       isCustomComponent: false,
       isParentForSlots: false,
@@ -202,9 +208,9 @@ export class ComponentBuilder {
 
         if (tagPropertyName.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE;
-          newTagInfo.ast.body = [];
+          newTagInfo.astInfo.body = [];
 
-          openTagInfo.ast.body.push(
+          openTagInfo.astInfo.body.push(
             t.expressionStatement(
               t.assignmentExpression(
                 '=',
@@ -214,16 +220,16 @@ export class ComponentBuilder {
                 ),
                 t.arrowFunctionExpression(
                   [],
-                  t.blockStatement(<t.Statement[]>newTagInfo.ast.body)
+                  t.blockStatement(<t.Statement[]>newTagInfo.astInfo.body)
                 )
               )
             )
           );
         } else if (tagPropertyName.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE_ARRAY;
-          newTagInfo.ast.body = [];
+          newTagInfo.astInfo.body = [];
           
-          openTagInfo.ast.body.push(
+          openTagInfo.astInfo.body.push(
             t.expressionStatement(
               t.assignmentExpression(
                 '=',
@@ -231,13 +237,13 @@ export class ComponentBuilder {
                   t.identifier(ELEMENT_PREFIX + openTagInfo.index),
                   t.identifier(newTagInfo.propertyName)
                 ),
-                t.arrayExpression(<t.Expression[]>newTagInfo.ast.body)
+                t.arrayExpression(<t.Expression[]>newTagInfo.astInfo.body)
               )
             )
           );
         } else {
           newTagInfo.type = ElementType.COMMON_PROPERTY;
-          newTagInfo.ast.body = openTagInfo.ast.body;
+          newTagInfo.astInfo.body = openTagInfo.astInfo.body;
         }
       } else {
         throw new Error(`Property '${tagName}' is not suitable for parent '${openTagInfo.tagName}'`);
@@ -246,7 +252,7 @@ export class ComponentBuilder {
       if (openTagInfo != null) {
         newTagInfo.index = openTagInfo.index;
         newTagInfo.slotMap = new Map();
-        newTagInfo.ast.body = [];
+        newTagInfo.astInfo.body = [];
 
         openTagInfo.isParentForSlots = true;
       } else {
@@ -260,9 +266,9 @@ export class ComponentBuilder {
 
           newTagInfo.index = openTagInfo.index;
           newTagInfo.type = ElementType.TEMPLATE;
-          newTagInfo.ast.body = [];
+          newTagInfo.astInfo.body = [];
 
-          openTagInfo.ast.body.push(
+          openTagInfo.astInfo.body.push(
             t.objectExpression([
               t.objectProperty(
                 t.identifier(MULTI_TEMPLATE_KEY_ATTRIBUTE),
@@ -272,7 +278,7 @@ export class ComponentBuilder {
                 t.identifier('createView'),
                 t.arrowFunctionExpression(
                   [],
-                  t.blockStatement(<t.Statement[]>newTagInfo.ast.body)
+                  t.blockStatement(<t.Statement[]>newTagInfo.astInfo.body)
                 )
               )
             ])
@@ -292,7 +298,7 @@ export class ComponentBuilder {
 
       let parentAstBody;
       if (openTagInfo != null) {
-        parentAstBody = openTagInfo.ast.body;
+        parentAstBody = openTagInfo.astInfo.body;
 
         // We have to keep a list of child indices that are actually slots
         if (tagName === SpecialTags.SLOT) {
@@ -319,9 +325,9 @@ export class ComponentBuilder {
 
       newTagInfo.index = this.treeIndex;
       newTagInfo.type = ElementType.VIEW;
-      newTagInfo.ast = {
+      newTagInfo.astInfo = {
         body: parentAstBody,
-        injectIndex: parentAstBody.length
+        indexBeforeNewViewInstance: parentAstBody.length
       };
 
       if (tagName === SpecialTags.SLOT) {
@@ -335,7 +341,7 @@ export class ComponentBuilder {
           true
         );
 
-        newTagInfo.ast.body = [
+        newTagInfo.astInfo.body = [
           t.variableDeclaration(
             'let',
             [
@@ -374,19 +380,18 @@ export class ComponentBuilder {
                 )
               )
             ]),
-            t.blockStatement(<t.Statement[]>newTagInfo.ast.body)
+            t.blockStatement(<t.Statement[]>newTagInfo.astInfo.body)
           )
         );
 
         this.isInSlotFallbackScope = true;
       } else {
         const [elementName, prefix] = this.getLocalAndPrefixByName(tagName);
-        const propertyStatements = [];
 
         if (prefix != null) {
           newTagInfo.isCustomComponent = true;
 
-          newTagInfo.ast.body.push(
+          newTagInfo.astInfo.body.push(
             t.variableDeclaration(
               'let',
               [
@@ -397,25 +402,17 @@ export class ComponentBuilder {
               ]
             )
           );
-          newTagInfo.ast.injectIndex = newTagInfo.ast.body.length;
+          newTagInfo.astInfo.indexBeforeNewViewInstance = newTagInfo.astInfo.body.length;
         } else {
           // Store tags that are actually nativescript core components
           this.usedNSTags.add(tagName);
         }
 
-        this.traverseAttributes(attributes, (propertyName: string, prefix: string, value: string) => {
-          if (this.options.attributeValueFormatter) {
-            value = this.options.attributeValueFormatter(value, propertyName, tagName, attributes) ?? '';
-          }
-    
-          if (prefix === 'xmlns') {
-            this.registerNamespace(propertyName, value);
-          } else {
-            propertyStatements.push(this.getAstForProperty(this.treeIndex, propertyName, value));
-          }
-        });
-
-        newTagInfo.ast.body.push(...this.buildComponentAst(this.treeIndex, elementName, prefix, parentTagName).concat(propertyStatements));
+        // Create view instance
+        newTagInfo.astInfo.body.push(
+          ...this.buildComponentAst(this.treeIndex, elementName, prefix, parentTagName)
+        );
+        this.handleAttributeValues(this.treeIndex, tagName, attributes, newTagInfo.astInfo);
       }
     }
 
@@ -443,13 +440,13 @@ export class ComponentBuilder {
             case ElementType.COMMON_PROPERTY: {
               if (openTagInfo.childIndices.length) {
                 const childrenAstElements = openTagInfo.childIndices.map(treeIndex => t.identifier(ELEMENT_PREFIX + treeIndex));
-                openTagInfo.ast.body.push(
+                openTagInfo.astInfo.body.push(
                   t.expressionStatement(
                     t.callExpression(
                       t.memberExpression(
                         t.memberExpression(
                           t.identifier('global'),
-                          t.identifier('xmlCompiler')
+                          t.identifier('simpleUI')
                         ),
                         t.identifier('addViewsFromBuilder')
                       ), [
@@ -465,7 +462,7 @@ export class ComponentBuilder {
             }
             case ElementType.TEMPLATE: {
               const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
-              openTagInfo.ast.body.push(t.returnStatement(childIndex != null ? t.identifier(ELEMENT_PREFIX + childIndex) : t.nullLiteral()));
+              openTagInfo.astInfo.body.push(t.returnStatement(childIndex != null ? t.identifier(ELEMENT_PREFIX + childIndex) : t.nullLiteral()));
               break;
             }
             default:
@@ -484,7 +481,7 @@ export class ComponentBuilder {
               );
             }
 
-            openTagInfo.ast.body.push(
+            openTagInfo.astInfo.body.push(
               t.expressionStatement(
                 t.assignmentExpression(
                   '=',
@@ -500,17 +497,17 @@ export class ComponentBuilder {
           }
 
           // Put slot ast content into parent body
-          parentTagInfo.ast.body.splice(parentTagInfo.ast.injectIndex, 0, ...openTagInfo.ast.body);
+          parentTagInfo.astInfo.body.splice(parentTagInfo.astInfo.indexBeforeNewViewInstance, 0, ...openTagInfo.astInfo.body);
         } else if (tagName === SpecialTags.TEMPLATE) {
           const childIndex = openTagInfo.childIndices[openTagInfo.childIndices.length - 1];
-          openTagInfo.ast.body.push(t.returnStatement(childIndex != null ? t.identifier(ELEMENT_PREFIX + childIndex) : t.nullLiteral()));
+          openTagInfo.astInfo.body.push(t.returnStatement(childIndex != null ? t.identifier(ELEMENT_PREFIX + childIndex) : t.nullLiteral()));
         } else {
           if (openTagInfo.isParentForSlots && openTagInfo.nestedTagCount > 1) {
             throw new Error(`Cannot mix common views or properties with slot content inside tag '${tagName}'`);
           }
 
           if (tagName === SpecialTags.SLOT) {
-            openTagInfo.ast.body.push(
+            openTagInfo.astInfo.body.push(
               t.expressionStatement(
                 t.assignmentExpression(
                   '=',
@@ -525,13 +522,13 @@ export class ComponentBuilder {
               // Slots accept an array of elements so we spread instance
               const childrenAstElements = openTagInfo.childIndices.map(treeIndex => openTagInfo.slotChildIndices.includes(treeIndex) ? 
                 t.spreadElement(t.identifier(ELEMENT_PREFIX + treeIndex)) : t.identifier(ELEMENT_PREFIX + treeIndex));
-              openTagInfo.ast.body.push(
+              openTagInfo.astInfo.body.push(
                 t.expressionStatement(
                   t.callExpression(
                     t.memberExpression(
                       t.memberExpression(
                         t.identifier('global'),
-                        t.identifier('xmlCompiler')
+                        t.identifier('simpleUI')
                       ),
                       t.identifier('addViewsFromBuilder')
                     ), [
@@ -550,11 +547,9 @@ export class ComponentBuilder {
         if (this.openTags.length) {
           openTagInfo = this.openTags[this.openTags.length - 1];
         } else {
-          this.isComponentInitialized = true;
           openTagInfo = null;
-
-          // Assemble the module ast
-          this.finalize();
+          this.isComponentInitialized = true;
+          this.assembleAst();
         }
       }
 
@@ -573,7 +568,7 @@ export class ComponentBuilder {
     return this.pathsToResolve;
   }
 
-  private finalize(): void {
+  private assembleAst(): void {
     const astBody = [];
 
     // Core modules barrel
@@ -651,24 +646,8 @@ export class ComponentBuilder {
     );
 
     astBody.push(
-      t.variableDeclaration('let', [
-        t.variableDeclarator(
-          t.objectPattern([
-            t.objectProperty(
-              t.identifier('setPropertyValue'),
-              t.identifier('setPropertyValue'),
-              false,
-              true
-            )
-          ]),
-          t.callExpression(
-            t.identifier('require'), [
-              t.stringLiteral('@nativescript/core/ui/builder/component-builder')
-            ]
-          )
-        )
-      ]),
       ...this.astCustomModulesRegister,
+      ...this.astBindingCallbacksBody,
       // Class
       t.exportDefaultDeclaration(
         t.classDeclaration(
@@ -748,6 +727,50 @@ export class ComponentBuilder {
     }
   }
 
+  private handleAttributeValues(treeIndex: number, tagName, attributes, tagAstInfo: TagAstInfo) {
+    const bindingOptionData: Array<BindingOptions> = [];
+
+    // Handle view properties
+    this.traverseAttributes(attributes, (propertyName: string, prefix: string, value: string) => {
+      if (this.options.attributeValueFormatter) {
+        value = this.options.attributeValueFormatter(value, propertyName, tagName, attributes) ?? '';
+      }
+
+      // Namespaces work as module imports
+      if (prefix === 'xmlns') {
+        this.registerNamespace(propertyName, value);
+      } else {
+        // If property value is enclosed in curly brackets, then it's a binding expression
+        if (this.bindingBuilder.isBindingValue(value)) {
+          bindingOptionData.push(this.bindingBuilder.convertValueToBindingOptions(propertyName, value));
+        } else {
+          tagAstInfo.body.push(this.getPropertySetterAst(propertyName, t.stringLiteral(value), t.identifier(ELEMENT_PREFIX + this.treeIndex), true));
+        }
+      }
+    });
+
+    // Check if view has property bindings
+    if (bindingOptionData.length) {
+      // Add listener for tracking binding context changes
+      tagAstInfo.body.push(
+        t.expressionStatement(
+          t.callExpression(
+            t.memberExpression(
+              t.identifier(ELEMENT_PREFIX + this.treeIndex),
+              t.identifier('on')
+            ), [
+              t.stringLiteral('bindingContextChange'),
+              t.identifier(`_on_${ELEMENT_PREFIX + this.treeIndex}BindingContextChange`)
+            ]
+          )
+        )
+      );
+
+      // Generate functions for listening to binding changes
+      this.generateBindingCallbackDeclarations(this.treeIndex, bindingOptionData);
+    }
+  }
+
   private traverseAttributes(attributes, callback?: (propertyName: string, prefix: string, propertyValue: string) => void) {
     // Ignore unused attributes
     if ('xmlns' in attributes) {
@@ -772,36 +795,21 @@ export class ComponentBuilder {
     }
   }
 
-  private getAstForProperty(index: number, propertyName: string, propertyValue: string): t.ExpressionStatement {
-    let propertyAst: t.Expression = t.identifier(ELEMENT_PREFIX + index);
-    if (propertyName.indexOf('.') !== -1) {
-      const properties = propertyName.split('.');
-
-      for (let i = 0, length = properties.length - 1; i < length; i++) {
-        propertyAst = t.optionalMemberExpression(
-          propertyAst,
-          t.identifier(properties[i]),
-          false,
-          true
-        );
-      }
-      propertyName = properties[properties.length - 1];
-    }
-
+  private getPropertySetterAst(propertyName: string, valueExpression: t.Expression, identifier: t.Identifier, includeModuleExports: boolean): t.ExpressionStatement {
     return t.expressionStatement(
-      t.logicalExpression(
-        '&&',
-        propertyAst,
-        t.callExpression(
-          t.identifier('setPropertyValue'),
-          [
-            propertyAst,
-            t.nullLiteral(),
-            t.identifier('moduleExports'),
-            t.stringLiteral(propertyName),
-            t.stringLiteral(propertyValue)
-          ]
-        )
+      t.callExpression(
+        t.memberExpression(
+          t.memberExpression(
+            t.identifier('global'),
+            t.identifier('simpleUI')
+          ),
+          t.identifier('setPropertyValue')
+        ), [
+          identifier,
+          t.stringLiteral(propertyName),
+          valueExpression,
+          includeModuleExports ? t.identifier('moduleExports') : t.nullLiteral()
+        ]
       )
     );
   }
@@ -983,6 +991,526 @@ export class ComponentBuilder {
     ];
   }
 
+  private generateBindingSourceAstCallback(propertyName: string, expressionStatements: t.ExpressionStatement[]): t.ObjectProperty {
+    return t.objectProperty(
+      t.stringLiteral(propertyName),
+      t.functionExpression(
+        null,
+        [
+          t.identifier('view'),
+          t.identifier('viewModel'),
+          t.identifier('bindingScopes')
+        ],
+        t.blockStatement([
+          t.variableDeclaration(
+            'let',
+            [
+              t.variableDeclarator(
+                t.objectPattern([
+                  t.objectProperty(
+                    t.identifier(VALUE_REFERENCE_NAME),
+                    t.identifier(VALUE_REFERENCE_NAME),
+                    false,
+                    true
+                  ),
+                  t.objectProperty(
+                    t.identifier(PARENT_REFERENCE_NAME),
+                    t.identifier(PARENT_REFERENCE_NAME),
+                    false,
+                    true
+                  ),
+                  t.objectProperty(
+                    t.identifier(PARENTS_REFERENCE_NAME),
+                    t.identifier(PARENTS_REFERENCE_NAME),
+                    false,
+                    true
+                  )
+                ]),
+                t.identifier('bindingScopes')
+              )
+            ]
+          ),
+          ...expressionStatements
+        ])
+      )
+    );
+  }
+
+  private generateBindingCallbackDeclarations(treeIndex: number, bindingOptionData: Array<BindingOptions>): void {
+    const elementReference: string = ELEMENT_PREFIX + treeIndex;
+    const bindingSourcePropertyCallbackName: string = `_on_${elementReference}BindingSourcePropertyChange`;
+    const bindingSourcePropertyAstCallbacks: t.ObjectProperty[] = [];
+    const bindingTargetPropertyAstListenerArgs: Array<t.Expression[]> = [];
+    const bindingTargetAstSettersForContextChange: Array<t.ExpressionStatement> = [];
+    const bindingTargetAstSettersPerPropertyMap: Map<string, t.ExpressionStatement[]> = new Map();
+    const totalParentAstExpressions: Array<t.Expression> = [];
+
+    // Generate functions for listening to binding property changes
+    for (let i = 0, length = bindingOptionData.length; i < length; i++) {
+      const bindingOptions = bindingOptionData[i];
+      const bindingTargetPropertyCallbackName = `_on_${elementReference}BindingTargetProperty${i}Change`;
+
+      // Populate expressions used by $parents references
+      if (bindingOptions.parentKeyAstExpressions.length) {
+        totalParentAstExpressions.push(...bindingOptions.parentKeyAstExpressions);
+      }
+
+      // These statements serve for setting expression values to target properties inside binding context change callback
+      bindingTargetAstSettersForContextChange.push(this.getPropertySetterAst(bindingOptions.viewPropertyName, bindingOptions.astExpression, t.identifier('view'), false));
+
+      // These mapped target property setters will serve for generating binding source callbacks that will be used from binding property change callback
+      for (const propertyName of bindingOptions.properties) {
+        const bindingTargetPropertyAstSetter = this.getPropertySetterAst(bindingOptions.viewPropertyName, bindingOptions.astExpression, t.identifier('view'), false);
+
+        if (bindingTargetAstSettersPerPropertyMap.has(propertyName)) {
+          bindingTargetAstSettersPerPropertyMap.get(propertyName).push(bindingTargetPropertyAstSetter);
+        } else {
+          bindingTargetAstSettersPerPropertyMap.set(propertyName, [bindingTargetPropertyAstSetter]);
+        }
+      }
+
+      // View -> view model callback (two-way) function
+      if (bindingOptions.isTwoWay) {
+        this.astBindingCallbacksBody.push(
+          this.generateBindingTargetAstCallback(bindingTargetPropertyCallbackName, <t.MemberExpression | t.OptionalMemberExpression>bindingOptions.astExpression)
+        );
+      }
+
+      // These arguments are used for adding/removing event listeners for binding target properties
+      bindingTargetPropertyAstListenerArgs.push([
+        t.stringLiteral(`${bindingOptions.viewPropertyName}Change`),
+        t.identifier(bindingTargetPropertyCallbackName)
+      ]);
+    }
+
+    // View model -> view callback functions
+    for (const [ propertyName, expressionStatements ] of bindingTargetAstSettersPerPropertyMap) {
+      bindingSourcePropertyAstCallbacks.push(this.generateBindingSourceAstCallback(propertyName, expressionStatements));
+    }
+
+    const bindingSourcePropertyAstCallbackPairs = t.variableDeclaration(
+      'let', [
+        t.variableDeclarator(
+          t.identifier(`${elementReference}BindingSourceCallbackPairs`),
+          t.objectExpression(bindingSourcePropertyAstCallbacks)
+        )
+      ]
+    );
+
+    const bindingSourcePropertyChangeCallbackAst = t.functionDeclaration(
+      t.identifier(bindingSourcePropertyCallbackName),
+      [
+        t.identifier('args')
+      ],
+      t.blockStatement([
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier('view'),
+              t.thisExpression()
+            )
+          ]
+        ),
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier('bindingContext'),
+              t.memberExpression(
+                t.identifier('args'),
+                t.identifier('object')
+              )
+            )
+          ]
+        ),
+        t.expressionStatement(
+          t.callExpression(
+            t.memberExpression(
+              t.memberExpression(
+                t.identifier('global'),
+                t.identifier('simpleUI')
+              ),
+              t.identifier('getCompleteBindingSource')
+            ), [
+              t.identifier('bindingContext'),
+              t.arrowFunctionExpression(
+                [
+                  t.identifier(VIEW_MODEL_REFERENCE_NAME)
+                ],
+                t.blockStatement([
+                  t.variableDeclaration(
+                    'let', [
+                      t.variableDeclarator(
+                        t.identifier(VALUE_REFERENCE_NAME),
+                        t.identifier(VIEW_MODEL_REFERENCE_NAME)
+                      )
+                    ]
+                  ),
+                  t.variableDeclaration(
+                    'let', [
+                      t.variableDeclarator(
+                        t.identifier(PARENT_REFERENCE_NAME),
+                        t.conditionalExpression(
+                          t.memberExpression(
+                            t.identifier('view'),
+                            t.identifier('parent')
+                          ),
+                          t.memberExpression(
+                            t.memberExpression(
+                              t.identifier('view'),
+                              t.identifier('parent')
+                            ),
+                            t.identifier('bindingContext')
+                          ),
+                          t.nullLiteral()
+                        )
+                      )
+                    ]
+                  ),
+                  t.variableDeclaration(
+                    'let', [
+                      t.variableDeclarator(
+                        t.identifier(PARENTS_REFERENCE_NAME),
+                        totalParentAstExpressions.length ? t.callExpression(
+                          t.memberExpression(
+                            t.memberExpression(
+                              t.identifier('global'),
+                              t.identifier('simpleUI')
+                            ),
+                            t.identifier('createParentsBindingInstance')
+                          ), [
+                            t.identifier('view'),
+                            t.arrayExpression(totalParentAstExpressions)
+                          ]
+                        ) : t.nullLiteral()
+                      )
+                    ]
+                  ),
+                  t.expressionStatement(
+                    t.callExpression(
+                      t.memberExpression(
+                        t.identifier(`${elementReference}BindingSourceCallbackPairs`),
+                        t.memberExpression(
+                          t.identifier('args'),
+                          t.identifier('propertyName')
+                        ),
+                        true
+                      ),
+                      [
+                        t.identifier('view'),
+                        t.identifier(VIEW_MODEL_REFERENCE_NAME),
+                        t.objectExpression([
+                          t.objectProperty(
+                            t.identifier(VALUE_REFERENCE_NAME),
+                            t.identifier(VALUE_REFERENCE_NAME),
+                            false,
+                            true
+                          ),
+                          t.objectProperty(
+                            t.identifier(PARENT_REFERENCE_NAME),
+                            t.identifier(PARENT_REFERENCE_NAME),
+                            false,
+                            true
+                          ),
+                          t.objectProperty(
+                            t.identifier(PARENTS_REFERENCE_NAME),
+                            t.identifier(PARENTS_REFERENCE_NAME),
+                            false,
+                            true
+                          )
+                        ])
+                      ]
+                    )
+                  )
+                ])
+              )
+            ]
+          )
+        )
+      ])
+    );
+
+    // Binding context change callback function
+    const bindingContextCallbackAst = t.functionDeclaration(
+      t.identifier(`_on_${elementReference}BindingContextChange`), [
+        t.identifier('args')
+      ],
+      t.blockStatement([
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier('view'),
+              t.memberExpression(
+                t.identifier('args'),
+                t.identifier('object')
+              )
+            )
+          ]
+        ),
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier('oldBindingContext'),
+              t.memberExpression(
+                t.identifier('args'),
+                t.identifier('oldValue')
+              )
+            )
+          ]
+        ),
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier('bindingContext'),
+              t.memberExpression(
+                t.identifier('args'),
+                t.identifier('value')
+              )
+            )
+          ]
+        ),
+        t.ifStatement(
+          t.binaryExpression(
+            '!=',
+            t.identifier('oldBindingContext'),
+            t.nullLiteral()
+          ),
+          t.blockStatement([
+            t.ifStatement(
+              t.binaryExpression(
+                '==',
+                t.identifier('bindingContext'),
+                t.nullLiteral()
+              ),
+              t.blockStatement(
+                bindingTargetPropertyAstListenerArgs.map(args => t.expressionStatement(
+                  t.callExpression(
+                    t.memberExpression(
+                      t.identifier('view'),
+                      t.identifier('off')
+                    ),
+                    args
+                  )
+                ))
+              )
+            ),
+            t.ifStatement(
+              t.binaryExpression(
+                'instanceof',
+                t.identifier('oldBindingContext'),
+                t.identifier('Observable')
+              ),
+              t.blockStatement([
+                t.expressionStatement(
+                  t.callExpression(
+                    t.identifier('removeWeakEventListener'), [
+                      t.identifier('oldBindingContext'),
+                      t.memberExpression(
+                        t.identifier('Observable'),
+                        t.identifier('propertyChangeEvent')
+                      ),
+                      t.identifier(bindingSourcePropertyCallbackName),
+                      t.identifier('view')
+                    ]
+                  )
+                )
+              ])
+            )
+          ])
+        ),
+        t.expressionStatement(
+          t.callExpression(
+            t.memberExpression(
+              t.memberExpression(
+                t.identifier('global'),
+                t.identifier('simpleUI')
+              ),
+              t.identifier('getCompleteBindingSource')
+            ), [
+              t.identifier('bindingContext'),
+              t.arrowFunctionExpression(
+                [
+                  t.identifier(VIEW_MODEL_REFERENCE_NAME)
+                ],
+                t.blockStatement([
+                  t.variableDeclaration(
+                    'let', [
+                      t.variableDeclarator(
+                        t.identifier(VALUE_REFERENCE_NAME),
+                        t.identifier(VIEW_MODEL_REFERENCE_NAME)
+                      )
+                    ]
+                  ),
+                  t.variableDeclaration(
+                    'let', [
+                      t.variableDeclarator(
+                        t.identifier(PARENT_REFERENCE_NAME),
+                        t.conditionalExpression(
+                          t.memberExpression(
+                            t.identifier('view'),
+                            t.identifier('parent')
+                          ),
+                          t.memberExpression(
+                            t.memberExpression(
+                              t.identifier('view'),
+                              t.identifier('parent')
+                            ),
+                            t.identifier('bindingContext')
+                          ),
+                          t.nullLiteral()
+                        )
+                      )
+                    ]
+                  ),
+                  t.variableDeclaration(
+                    'let', [
+                      t.variableDeclarator(
+                        t.identifier(PARENTS_REFERENCE_NAME),
+                        totalParentAstExpressions.length ? t.callExpression(
+                          t.memberExpression(
+                            t.memberExpression(
+                              t.identifier('global'),
+                              t.identifier('simpleUI')
+                            ),
+                            t.identifier('createParentsBindingInstance')
+                          ), [
+                            t.identifier('view'),
+                            t.arrayExpression(totalParentAstExpressions)
+                          ]
+                        ) : t.nullLiteral()
+                      )
+                    ]
+                  ),
+                  ...bindingTargetAstSettersForContextChange
+                ])
+              )
+            ]
+          )
+        ),
+        t.ifStatement(
+          t.binaryExpression(
+            '!=',
+            t.identifier('bindingContext'),
+            t.nullLiteral()
+          ),
+          t.blockStatement([
+            t.ifStatement(
+              t.binaryExpression(
+                '==',
+                t.identifier('oldBindingContext'),
+                t.nullLiteral()
+              ),
+              t.blockStatement(
+                bindingTargetPropertyAstListenerArgs.map(args => t.expressionStatement(
+                  t.callExpression(
+                    t.memberExpression(
+                      t.identifier('view'),
+                      t.identifier('on')
+                    ),
+                    args
+                  )
+                ))
+              )
+            ),
+            t.ifStatement(
+              t.binaryExpression(
+                'instanceof',
+                t.identifier('bindingContext'),
+                t.identifier('Observable')
+              ),
+              t.blockStatement([
+                t.expressionStatement(
+                  t.callExpression(
+                    t.identifier('addWeakEventListener'), [
+                      t.identifier('bindingContext'),
+                      t.memberExpression(
+                        t.identifier('Observable'),
+                        t.identifier('propertyChangeEvent')
+                      ),
+                      t.identifier(bindingSourcePropertyCallbackName),
+                      t.identifier('view')
+                    ]
+                  )
+                )
+              ])
+            )
+          ])
+        )
+      ]),
+      false
+    );
+    this.astBindingCallbacksBody.push(bindingSourcePropertyAstCallbackPairs, bindingSourcePropertyChangeCallbackAst, bindingContextCallbackAst);
+  }
+
+  private generateBindingTargetAstCallback(propertyName: string, astExpression: t.MemberExpression | t.OptionalMemberExpression): t.FunctionDeclaration {
+    // Separate last member property from rest of member expression as we'll need it for value assignment
+    const memberObjectAst = astExpression.object;
+    const memberPropertyAst = t.isIdentifier(astExpression.property) && !astExpression.computed ? t.stringLiteral(astExpression.property.name) : astExpression.property;
+
+    return t.functionDeclaration(
+      t.identifier(propertyName),
+      [
+        t.identifier('args')
+      ],
+      t.blockStatement([
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier('view'),
+              t.memberExpression(
+                t.identifier('args'),
+                t.identifier('object')
+              )
+            )
+          ]
+        ),
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier(VIEW_MODEL_REFERENCE_NAME),
+              t.memberExpression(
+                t.identifier('view'),
+                t.identifier('bindingContext')
+              )
+            )
+          ]
+        ),
+        // Since we can't have optional chaining as left-hand side assignment, let's store and use it as a variable
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier('propertyOwner'),
+              memberObjectAst
+            )
+          ]
+        ),
+        // Ensure accessed instance is not null or undefined and apply new value
+        t.ifStatement(
+          t.binaryExpression(
+            '!=',
+            t.identifier('propertyOwner'),
+            t.nullLiteral()
+          ),
+          t.blockStatement([
+            t.expressionStatement(
+              t.assignmentExpression(
+                '=',
+                t.memberExpression(
+                  t.identifier('propertyOwner'),
+                  memberPropertyAst,
+                  true
+                ),
+                t.memberExpression(
+                  t.identifier('args'),
+                  t.identifier('value')
+                )
+              )
+            )
+          ])
+        )
+      ])
+    );
+  }
+
   private registerNamespace(propertyName, propertyValue): void {
     /**
      * By default, virtual-entry-javascript registers all application js, xml, and css files as modules.
@@ -1024,7 +1552,7 @@ export class ComponentBuilder {
           t.memberExpression(
             t.memberExpression(
               t.identifier('global'),
-              t.identifier('xmlCompiler')
+              t.identifier('simpleUI')
             ),
             t.identifier('loadCustomModule')
           ),
