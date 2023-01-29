@@ -32,6 +32,7 @@ global.simpleUI = {
       parent = parent.parent;
     }
 
+    // Some parents are not available soon enough, so a retry is done when view gets loaded
     if (cssTypes.length && !view.isLoaded) {
       view.off(ViewBase.loadedEvent, global.simpleUI.notifyViewBindingContextChange);
       view.once(ViewBase.loadedEvent, global.simpleUI.notifyViewBindingContextChange);
