@@ -38,6 +38,7 @@ export interface BindingOptions {
   properties: Array<string>;
   astExpression: t.Expression;
   isTwoWay: boolean;
+  specialReferenceCount: number;
   parentKeyAstExpressions: Array<t.Expression>;
 }
 
@@ -59,7 +60,8 @@ export class BindingBuilder {
       viewPropertyName: propertyName,
       properties: [],
       astExpression: null,
-      isTwoWay: this.isTwoWayBindingExpression(expressionStatement.expression),
+      isTwoWay: false,
+      specialReferenceCount: 0,
       parentKeyAstExpressions: []
     };
 
@@ -111,6 +113,7 @@ export class BindingBuilder {
               const parentKeyAst = this.getAstForParentKey(parentNode, bindingValue);
               bindingOptions.parentKeyAstExpressions.push(parentKeyAst);
             }
+            bindingOptions.specialReferenceCount++;
           } else {
             bindingOptions.properties.push(path.node.name);
 
@@ -136,6 +139,7 @@ export class BindingBuilder {
     });
 
     bindingOptions.astExpression = expressionStatement.expression;
+    bindingOptions.isTwoWay = bindingOptions.properties.length && this.isTwoWayBindingExpression(expressionStatement.expression);
     return bindingOptions;
   }
 

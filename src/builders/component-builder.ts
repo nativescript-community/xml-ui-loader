@@ -6,6 +6,7 @@ import { BindingBuilder, BindingOptions, PARENTS_REFERENCE_NAME, PARENT_REFERENC
 import { AttributeValueFormatter } from '../helpers';
 
 const ELEMENT_PREFIX = 'el';
+const GLOBAL_UI_REF = 'simpleUI';
 const CODE_FILE = 'codeFile';
 const CSS_FILE = 'cssFile';
 const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
@@ -446,7 +447,7 @@ export class ComponentBuilder {
                       t.memberExpression(
                         t.memberExpression(
                           t.identifier('global'),
-                          t.identifier('simpleUI')
+                          t.identifier(GLOBAL_UI_REF)
                         ),
                         t.identifier('addViewsFromBuilder')
                       ), [
@@ -528,7 +529,7 @@ export class ComponentBuilder {
                     t.memberExpression(
                       t.memberExpression(
                         t.identifier('global'),
-                        t.identifier('simpleUI')
+                        t.identifier(GLOBAL_UI_REF)
                       ),
                       t.identifier('addViewsFromBuilder')
                     ), [
@@ -830,7 +831,7 @@ export class ComponentBuilder {
         t.memberExpression(
           t.memberExpression(
             t.identifier('global'),
-            t.identifier('simpleUI')
+            t.identifier(GLOBAL_UI_REF)
           ),
           t.identifier('setPropertyValue')
         ), [
@@ -1020,7 +1021,7 @@ export class ComponentBuilder {
     ];
   }
 
-  private generateBindingSourceAstCallback(propertyName: string, expressionStatements: t.ExpressionStatement[]): t.ObjectProperty {
+  private generateBindingSourceAstCallback(propertyName: string, parentKeyAstExpressions: Array<t.Expression>, expressionStatements: t.ExpressionStatement[]): t.ObjectProperty {
     return t.objectProperty(
       t.stringLiteral(propertyName),
       t.functionExpression(
@@ -1047,15 +1048,28 @@ export class ComponentBuilder {
                     t.identifier(PARENT_REFERENCE_NAME),
                     false,
                     true
-                  ),
-                  t.objectProperty(
-                    t.identifier(PARENTS_REFERENCE_NAME),
-                    t.identifier(PARENTS_REFERENCE_NAME),
-                    false,
-                    true
                   )
                 ]),
                 t.identifier('bindingScopes')
+              )
+            ]
+          ),
+          t.variableDeclaration(
+            'let', [
+              t.variableDeclarator(
+                t.identifier(PARENTS_REFERENCE_NAME),
+                parentKeyAstExpressions.length ? t.callExpression(
+                  t.memberExpression(
+                    t.memberExpression(
+                      t.identifier('global'),
+                      t.identifier(GLOBAL_UI_REF)
+                    ),
+                    t.identifier('createParentsBindingInstance')
+                  ), [
+                    t.identifier('view'),
+                    t.arrayExpression(parentKeyAstExpressions)
+                  ]
+                ) : t.nullLiteral()
               )
             ]
           ),
@@ -1066,22 +1080,22 @@ export class ComponentBuilder {
   }
 
   private generateBindingCallbackDeclarations(treeIndex: number, bindingOptionData: Array<BindingOptions>): void {
-    const elementReference: string = ELEMENT_PREFIX + treeIndex;
-    const bindingSourcePropertyCallbackName: string = `_on_${elementReference}BindingSourcePropertyChange`;
+    const elementRef: string = ELEMENT_PREFIX + treeIndex;
+    const bindingSourceCallbackPairName = `_${elementRef}BindingSourceCallbackPairs`;
     const bindingSourcePropertyAstCallbacks: t.ObjectProperty[] = [];
     const bindingTargetPropertyAstListenerArgs: Array<t.Expression[]> = [];
     const bindingTargetAstSettersForContextChange: Array<t.ExpressionStatement> = [];
     const bindingTargetAstSettersPerPropertyMap: Map<string, t.ExpressionStatement[]> = new Map();
-    const totalParentAstExpressions: Array<t.Expression> = [];
+    const totalParentKeyAstExpressions: Array<t.Expression> = [];
 
     // Generate functions for listening to binding property changes
     for (let i = 0, length = bindingOptionData.length; i < length; i++) {
       const bindingOptions = bindingOptionData[i];
-      const bindingTargetPropertyCallbackName = `_on_${elementReference}BindingTargetProperty${i}Change`;
+      const bindingTargetPropertyCallbackName = `_on_${elementRef}BindingTargetProperty${i}Change`;
 
       // Populate expressions used by $parents references
       if (bindingOptions.parentKeyAstExpressions.length) {
-        totalParentAstExpressions.push(...bindingOptions.parentKeyAstExpressions);
+        totalParentKeyAstExpressions.push(...bindingOptions.parentKeyAstExpressions);
       }
 
       // These statements serve for setting expression values to target properties inside binding context change callback
@@ -1101,7 +1115,7 @@ export class ComponentBuilder {
       // View -> view model callback (two-way) function
       if (bindingOptions.isTwoWay) {
         this.astBindingCallbacksBody.push(
-          this.generateBindingTargetAstCallback(bindingTargetPropertyCallbackName, <t.MemberExpression | t.OptionalMemberExpression>bindingOptions.astExpression)
+          this.generateBindingTargetAstCallback(bindingTargetPropertyCallbackName, bindingOptions.parentKeyAstExpressions, <t.MemberExpression | t.OptionalMemberExpression>bindingOptions.astExpression)
         );
 
         // These arguments are used for adding/removing event listeners for binding target properties
@@ -1114,165 +1128,21 @@ export class ComponentBuilder {
 
     // View model -> view callback functions
     for (const [ propertyName, expressionStatements ] of bindingTargetAstSettersPerPropertyMap) {
-      bindingSourcePropertyAstCallbacks.push(this.generateBindingSourceAstCallback(propertyName, expressionStatements));
+      bindingSourcePropertyAstCallbacks.push(this.generateBindingSourceAstCallback(propertyName, totalParentKeyAstExpressions, expressionStatements));
     }
 
     const bindingSourcePropertyAstCallbackPairs = t.variableDeclaration(
       'let', [
         t.variableDeclarator(
-          t.identifier(`_${elementReference}BindingSourceCallbackPairs`),
+          t.identifier(bindingSourceCallbackPairName),
           t.objectExpression(bindingSourcePropertyAstCallbacks)
         )
       ]
     );
 
-    const bindingSourcePropertyChangeCallbackAst = t.functionDeclaration(
-      t.identifier(bindingSourcePropertyCallbackName),
-      [
-        t.identifier('args')
-      ],
-      t.blockStatement([
-        t.variableDeclaration(
-          'let', [
-            t.variableDeclarator(
-              t.identifier('view'),
-              t.thisExpression()
-            )
-          ]
-        ),
-        t.variableDeclaration(
-          'let', [
-            t.variableDeclarator(
-              t.identifier('bindingContext'),
-              t.memberExpression(
-                t.identifier('args'),
-                t.identifier('object')
-              )
-            )
-          ]
-        ),
-        t.expressionStatement(
-          t.callExpression(
-            t.memberExpression(
-              t.memberExpression(
-                t.identifier('global'),
-                t.identifier('simpleUI')
-              ),
-              t.identifier('getCompleteBindingSource')
-            ), [
-              t.identifier('bindingContext'),
-              t.arrowFunctionExpression(
-                [
-                  t.identifier(VIEW_MODEL_REFERENCE_NAME)
-                ],
-                t.blockStatement([
-                  t.variableDeclaration(
-                    'let', [
-                      t.variableDeclarator(
-                        t.identifier(VALUE_REFERENCE_NAME),
-                        t.identifier(VIEW_MODEL_REFERENCE_NAME)
-                      )
-                    ]
-                  ),
-                  t.variableDeclaration(
-                    'let', [
-                      t.variableDeclarator(
-                        t.identifier(PARENT_REFERENCE_NAME),
-                        t.conditionalExpression(
-                          t.memberExpression(
-                            t.identifier('view'),
-                            t.identifier('parent')
-                          ),
-                          t.memberExpression(
-                            t.memberExpression(
-                              t.identifier('view'),
-                              t.identifier('parent')
-                            ),
-                            t.identifier('bindingContext')
-                          ),
-                          t.nullLiteral()
-                        )
-                      )
-                    ]
-                  ),
-                  t.variableDeclaration(
-                    'let', [
-                      t.variableDeclarator(
-                        t.identifier(PARENTS_REFERENCE_NAME),
-                        totalParentAstExpressions.length ? t.callExpression(
-                          t.memberExpression(
-                            t.memberExpression(
-                              t.identifier('global'),
-                              t.identifier('simpleUI')
-                            ),
-                            t.identifier('createParentsBindingInstance')
-                          ), [
-                            t.identifier('view'),
-                            t.arrayExpression(totalParentAstExpressions)
-                          ]
-                        ) : t.nullLiteral()
-                      )
-                    ]
-                  ),
-                  t.ifStatement(
-                    t.binaryExpression(
-                      'in',
-                      t.memberExpression(
-                        t.identifier('args'),
-                        t.identifier('propertyName')
-                      ),
-                      t.identifier(`_${elementReference}BindingSourceCallbackPairs`)
-                    ),
-                    t.blockStatement([
-                      t.expressionStatement(
-                        t.callExpression(
-                          t.memberExpression(
-                            t.identifier(`_${elementReference}BindingSourceCallbackPairs`),
-                            t.memberExpression(
-                              t.identifier('args'),
-                              t.identifier('propertyName')
-                            ),
-                            true
-                          ),
-                          [
-                            t.identifier('view'),
-                            t.identifier(VIEW_MODEL_REFERENCE_NAME),
-                            t.objectExpression([
-                              t.objectProperty(
-                                t.identifier(VALUE_REFERENCE_NAME),
-                                t.identifier(VALUE_REFERENCE_NAME),
-                                false,
-                                true
-                              ),
-                              t.objectProperty(
-                                t.identifier(PARENT_REFERENCE_NAME),
-                                t.identifier(PARENT_REFERENCE_NAME),
-                                false,
-                                true
-                              ),
-                              t.objectProperty(
-                                t.identifier(PARENTS_REFERENCE_NAME),
-                                t.identifier(PARENTS_REFERENCE_NAME),
-                                false,
-                                true
-                              )
-                            ])
-                          ]
-                        )
-                      )
-                    ])
-                  )
-                ])
-              )
-            ]
-          )
-        )
-      ])
-    );
-
     // Binding context change callback function
     const bindingContextCallbackAst = t.functionDeclaration(
-      t.identifier(`_on_${elementReference}BindingContextChange`), [
+      t.identifier(`_on_${elementRef}BindingContextChange`), [
         t.identifier('args')
       ],
       t.blockStatement([
@@ -1358,6 +1228,15 @@ export class ComponentBuilder {
               ),
               t.blockStatement([
                 t.expressionStatement(
+                  t.unaryExpression(
+                    'delete',
+                    t.memberExpression(
+                      t.identifier('view'),
+                      t.identifier('_bindingSourceCallbackPairs')
+                    )
+                  )
+                ),
+                t.expressionStatement(
                   t.callExpression(
                     t.identifier('removeWeakEventListener'), [
                       t.identifier('oldBindingContext'),
@@ -1365,7 +1244,13 @@ export class ComponentBuilder {
                         t.identifier('Observable'),
                         t.identifier('propertyChangeEvent')
                       ),
-                      t.identifier(bindingSourcePropertyCallbackName),
+                      t.memberExpression(
+                        t.memberExpression(
+                          t.identifier('global'),
+                          t.identifier(GLOBAL_UI_REF)
+                        ),
+                        t.identifier('onBindingSourcePropertyChange')
+                      ),
                       t.identifier('view')
                     ]
                   )
@@ -1379,7 +1264,7 @@ export class ComponentBuilder {
             t.memberExpression(
               t.memberExpression(
                 t.identifier('global'),
-                t.identifier('simpleUI')
+                t.identifier(GLOBAL_UI_REF)
               ),
               t.identifier('getCompleteBindingSource')
             ), [
@@ -1422,16 +1307,16 @@ export class ComponentBuilder {
                     'let', [
                       t.variableDeclarator(
                         t.identifier(PARENTS_REFERENCE_NAME),
-                        totalParentAstExpressions.length ? t.callExpression(
+                        totalParentKeyAstExpressions.length ? t.callExpression(
                           t.memberExpression(
                             t.memberExpression(
                               t.identifier('global'),
-                              t.identifier('simpleUI')
+                              t.identifier(GLOBAL_UI_REF)
                             ),
                             t.identifier('createParentsBindingInstance')
                           ), [
                             t.identifier('view'),
-                            t.arrayExpression(totalParentAstExpressions)
+                            t.arrayExpression(totalParentKeyAstExpressions)
                           ]
                         ) : t.nullLiteral()
                       )
@@ -1480,6 +1365,16 @@ export class ComponentBuilder {
               ),
               t.blockStatement([
                 t.expressionStatement(
+                  t.assignmentExpression(
+                    '=',
+                    t.memberExpression(
+                      t.identifier('view'),
+                      t.identifier('_bindingSourceCallbackPairs')
+                    ),
+                    t.identifier(bindingSourceCallbackPairName)
+                  )
+                ),
+                t.expressionStatement(
                   t.callExpression(
                     t.identifier('addWeakEventListener'), [
                       t.identifier('bindingContext'),
@@ -1487,7 +1382,13 @@ export class ComponentBuilder {
                         t.identifier('Observable'),
                         t.identifier('propertyChangeEvent')
                       ),
-                      t.identifier(bindingSourcePropertyCallbackName),
+                      t.memberExpression(
+                        t.memberExpression(
+                          t.identifier('global'),
+                          t.identifier(GLOBAL_UI_REF)
+                        ),
+                        t.identifier('onBindingSourcePropertyChange')
+                      ),
                       t.identifier('view')
                     ]
                   )
@@ -1499,10 +1400,10 @@ export class ComponentBuilder {
       ]),
       false
     );
-    this.astBindingCallbacksBody.push(bindingSourcePropertyAstCallbackPairs, bindingSourcePropertyChangeCallbackAst, bindingContextCallbackAst);
+    this.astBindingCallbacksBody.push(bindingSourcePropertyAstCallbackPairs, bindingContextCallbackAst);
   }
 
-  private generateBindingTargetAstCallback(propertyName: string, astExpression: t.MemberExpression | t.OptionalMemberExpression): t.FunctionDeclaration {
+  private generateBindingTargetAstCallback(propertyName: string, parentKeyAstExpressions: Array<t.Expression>, astExpression: t.MemberExpression | t.OptionalMemberExpression): t.FunctionDeclaration {
     // Separate last member property from rest of member expression as we'll need it for value assignment
     const memberObjectAst = astExpression.object;
     const memberPropertyAst = t.isIdentifier(astExpression.property) && !astExpression.computed ? t.stringLiteral(astExpression.property.name) : astExpression.property;
@@ -1532,6 +1433,54 @@ export class ComponentBuilder {
                 t.identifier('view'),
                 t.identifier('bindingContext')
               )
+            )
+          ]
+        ),
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier(VALUE_REFERENCE_NAME),
+              t.identifier(VIEW_MODEL_REFERENCE_NAME)
+            )
+          ]
+        ),
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier(PARENT_REFERENCE_NAME),
+              t.conditionalExpression(
+                t.memberExpression(
+                  t.identifier('view'),
+                  t.identifier('parent')
+                ),
+                t.memberExpression(
+                  t.memberExpression(
+                    t.identifier('view'),
+                    t.identifier('parent')
+                  ),
+                  t.identifier('bindingContext')
+                ),
+                t.nullLiteral()
+              )
+            )
+          ]
+        ),
+        t.variableDeclaration(
+          'let', [
+            t.variableDeclarator(
+              t.identifier(PARENTS_REFERENCE_NAME),
+              parentKeyAstExpressions.length ? t.callExpression(
+                t.memberExpression(
+                  t.memberExpression(
+                    t.identifier('global'),
+                    t.identifier(GLOBAL_UI_REF)
+                  ),
+                  t.identifier('createParentsBindingInstance')
+                ), [
+                  t.identifier('view'),
+                  t.arrayExpression(parentKeyAstExpressions)
+                ]
+              ) : t.nullLiteral()
             )
           ]
         ),
@@ -1613,7 +1562,7 @@ export class ComponentBuilder {
           t.memberExpression(
             t.memberExpression(
               t.identifier('global'),
-              t.identifier('simpleUI')
+              t.identifier(GLOBAL_UI_REF)
             ),
             t.identifier('loadCustomModule')
           ),

@@ -3,7 +3,7 @@ let { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');
 let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
 
 global.simpleUI = {
-  addViewsFromBuilder: function(parent, children, propertyName = null) {
+  addViewsFromBuilder(parent, children, propertyName = null) {
     if (parent._addChildFromBuilder) {
       for (const child of children) {
         if (child) {
@@ -75,7 +75,7 @@ global.simpleUI = {
       delete source[propertyName];
     }
   },
-  loadCustomModule: function(uri, ext) {
+  loadCustomModule(uri, ext) {
     if (ext) {
       uri = uri.substr(0, uri.length - (ext.length + 1));
     }
@@ -90,7 +90,7 @@ global.simpleUI = {
     }
     return null;
   },
-  notifyViewBindingContextChange: function(args) {
+  notifyViewBindingContextChange(args) {
     const view = args.object;
     view.notify({
       object: view,
@@ -98,6 +98,22 @@ global.simpleUI = {
       propertyName: 'bindingContext',
       value: view.bindingContext,
       oldValue: view.bindingContext,
+    });
+  },
+  onBindingSourcePropertyChange(args) {
+    let view = this;
+    let bindingContext = args.object;
+
+    global.simpleUI.getCompleteBindingSource(bindingContext, viewModel => {
+      let $value = viewModel;
+      let $parent = view.parent ? view.parent.bindingContext : null;
+
+      if (args.propertyName in view._bindingSourceCallbackPairs) {
+        view._bindingSourceCallbackPairs[args.propertyName](view, viewModel, {
+          $value,
+          $parent
+        });
+      }
     });
   },
   setPropertyValue(owner, propertyName, propertyValue, moduleExports) {
@@ -116,7 +132,7 @@ global.simpleUI = {
     if (instance != null) {
       if (isEventOrGesture(propertyName, instance)) {
         // Get the event handler from component module exports
-        const handler = moduleExports[propertyValue];
+        const handler = moduleExports?.[propertyValue];
     
         // Check if the handler is function and add it to the instance for specified event name
         if (typeof handler === 'function') {
