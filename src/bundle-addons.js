@@ -1,4 +1,4 @@
-let { Application, ViewBase } = require('@nativescript/core');
+let { Application, Utils, ViewBase } = require('@nativescript/core');
 let { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');
 let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
 
@@ -115,6 +115,15 @@ global.simpleUI = {
         });
       }
     });
+  },
+  runConverterCallback(converter, args, toModelDirection = false) {
+    let callback;
+    if (!Utils.isNullOrUndefined(converter) && Utils.isObject(converter)) {
+      callback = (toModelDirection ? converter.toModel : converter.toView);
+    } else {
+      callback = converter;
+    }
+    return Utils.isFunction(callback) ? callback.apply(null, args) : undefined;
   },
   setPropertyValue(owner, propertyName, propertyValue, moduleExports) {
     let instance = owner;
