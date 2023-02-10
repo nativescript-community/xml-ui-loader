@@ -12,6 +12,8 @@ export interface LoaderOptions {
   };
 }
 
+export const GLOBAL_UI_REF = 'simpleUI';
+
 export function chainLoaderConfiguration(config, options: LoaderOptions) {
   const addonsPath = resolve(__dirname, '../bundle-addons');
   config.entry('bundle').add(addonsPath);

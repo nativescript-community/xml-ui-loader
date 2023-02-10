@@ -3,10 +3,9 @@ import { pascalCase } from 'change-case';
 import { Parser } from 'htmlparser2';
 import { join, parse } from 'path';
 import { BindingBuilder, BindingOptions, PARENTS_REFERENCE_NAME, PARENT_REFERENCE_NAME, VALUE_REFERENCE_NAME, VIEW_MODEL_REFERENCE_NAME } from './binding-builder';
-import { AttributeValueFormatter } from '../helpers';
+import { AttributeValueFormatter, GLOBAL_UI_REF } from '../helpers';
 
 const ELEMENT_PREFIX = 'el';
-const GLOBAL_UI_REF = 'simpleUI';
 const CODE_FILE = 'codeFile';
 const CSS_FILE = 'cssFile';
 const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
@@ -1115,7 +1114,7 @@ export class ComponentBuilder {
       // View -> view model callback (two-way) function
       if (bindingOptions.isTwoWay) {
         this.astBindingCallbacksBody.push(
-          this.generateBindingTargetAstCallback(bindingTargetPropertyCallbackName, bindingOptions.parentKeyAstExpressions, <t.MemberExpression | t.OptionalMemberExpression>bindingOptions.astExpression)
+          this.generateBindingTargetAstCallback(bindingTargetPropertyCallbackName, bindingOptions)
         );
 
         // These arguments are used for adding/removing event listeners for binding target properties
@@ -1403,13 +1402,23 @@ export class ComponentBuilder {
     this.astBindingCallbacksBody.push(bindingSourcePropertyAstCallbackPairs, bindingContextCallbackAst);
   }
 
-  private generateBindingTargetAstCallback(propertyName: string, parentKeyAstExpressions: Array<t.Expression>, astExpression: t.MemberExpression | t.OptionalMemberExpression): t.FunctionDeclaration {
+  private generateBindingTargetAstCallback(callbackName: string, bindingOptions: BindingOptions): t.FunctionDeclaration {
+    let bindingExpression;
+    if (bindingOptions.converterToModelAstExpression != null) {
+      if (!bindingOptions.converterToModelAstExpression.expressions.length) {
+        throw new Error(`Invalid converter expression for property '${bindingOptions.viewPropertyName}': ${bindingOptions.toString()}`);
+      }
+      bindingExpression = bindingOptions.converterToModelAstExpression.expressions[0];
+    } else {
+      bindingExpression = bindingOptions.astExpression;
+    }
+
     // Separate last member property from rest of member expression as we'll need it for value assignment
-    const memberObjectAst = astExpression.object;
-    const memberPropertyAst = t.isIdentifier(astExpression.property) && !astExpression.computed ? t.stringLiteral(astExpression.property.name) : astExpression.property;
+    const memberObjectAst = bindingExpression.object;
+    const memberPropertyAst = t.isIdentifier(bindingExpression.property) && !bindingExpression.computed ? t.stringLiteral(bindingExpression.property.name) : bindingExpression.property;
 
     return t.functionDeclaration(
-      t.identifier(propertyName),
+      t.identifier(callbackName),
       [
         t.identifier('args')
       ],
@@ -1469,7 +1478,7 @@ export class ComponentBuilder {
           'let', [
             t.variableDeclarator(
               t.identifier(PARENTS_REFERENCE_NAME),
-              parentKeyAstExpressions.length ? t.callExpression(
+              bindingOptions.parentKeyAstExpressions.length ? t.callExpression(
                 t.memberExpression(
                   t.memberExpression(
                     t.identifier('global'),
@@ -1478,7 +1487,7 @@ export class ComponentBuilder {
                   t.identifier('createParentsBindingInstance')
                 ), [
                   t.identifier('view'),
-                  t.arrayExpression(parentKeyAstExpressions)
+                  t.arrayExpression(bindingOptions.parentKeyAstExpressions)
                 ]
               ) : t.nullLiteral()
             )
@@ -1509,7 +1518,7 @@ export class ComponentBuilder {
                   memberPropertyAst,
                   true
                 ),
-                t.memberExpression(
+                bindingOptions.converterToModelAstExpression != null ? bindingOptions.converterToModelAstExpression.expressions[1] : t.memberExpression(
                   t.identifier('args'),
                   t.identifier('value')
                 )
