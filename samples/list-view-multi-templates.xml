@@ -1,6 +1,6 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd">
   <StackLayout>
-    <ListView items="{{ listArray }}"  class="list-group" itemTemplateSelector="selectItemTemplate">
+    <ListView items="{{ listArray }}" class="list-group" itemTemplateSelector="{{ selectItemTemplate }}">
       <ListView.itemTemplates>
           <template key="even">
               <StackLayout class="list-group-item" style.backgroundColor="white">

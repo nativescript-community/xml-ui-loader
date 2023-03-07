@@ -1,8 +1,8 @@
 <Page xmlns="http://schemas.nativescript.org/tns.xsd">
   <ActionBar title="ActionBar Title" icon="">
-    <NavigationButton icon="res://ic_arrow_back_black_24dp" tap="goBack" />
+    <NavigationButton icon="res://ic_arrow_back_black_24dp" on:tap="goBack" />
     <ActionBar.actionItems>
-      <ActionItem icon="font://&#xf013;" class="fas" ios.position="right" tap="openSettings" />
+      <ActionItem icon="font://&#xf013;" class="fas" ios.position="right" on:tap="openSettings" />
     </ActionBar.actionItems>
   </ActionBar>
 </Page>
