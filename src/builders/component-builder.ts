@@ -1400,6 +1400,10 @@ export class ComponentBuilder {
     // Separate last member property from rest of member expression as we'll need it for value assignment
     const memberObjectAst = bindingExpression.object;
     const memberPropertyAst = t.isIdentifier(bindingExpression.property) && !bindingExpression.computed ? t.stringLiteral(bindingExpression.property.name) : bindingExpression.property;
+    const valueExpression = bindingOptions.converterToModelAstExpression != null ? bindingOptions.converterToModelAstExpression.expressions[1] : t.memberExpression(
+      t.identifier('args'),
+      t.identifier('value')
+    );
 
     return t.functionDeclaration(
       t.identifier(callbackName),
@@ -1502,19 +1506,39 @@ export class ComponentBuilder {
                       t.nullLiteral()
                     ),
                     t.blockStatement([
-                      t.expressionStatement(
-                        t.assignmentExpression(
-                          '=',
-                          t.memberExpression(
-                            t.identifier('propertyOwner'),
-                            memberPropertyAst,
-                            true
-                          ),
-                          bindingOptions.converterToModelAstExpression != null ? bindingOptions.converterToModelAstExpression.expressions[1] : t.memberExpression(
-                            t.identifier('args'),
-                            t.identifier('value')
+                      t.ifStatement(
+                        t.binaryExpression(
+                          'instanceof',
+                          t.identifier('propertyOwner'),
+                          t.identifier('Observable')
+                        ),
+                        t.blockStatement([
+                          t.expressionStatement(
+                            t.callExpression(
+                              t.memberExpression(
+                                t.identifier('propertyOwner'),
+                                t.identifier('set')
+                              ),
+                              [
+                                memberPropertyAst,
+                                valueExpression
+                              ]
+                            )
                           )
-                        )
+                        ]),
+                        t.blockStatement([
+                          t.expressionStatement(
+                            t.assignmentExpression(
+                              '=',
+                              t.memberExpression(
+                                t.identifier('propertyOwner'),
+                                memberPropertyAst,
+                                true
+                              ),
+                              valueExpression
+                            )
+                          )
+                        ])
                       )
                     ])
                   )
