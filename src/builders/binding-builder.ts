@@ -55,6 +55,10 @@ export class BindingBuilder {
 
   public convertValueToBindingOptions(propertyDetails: AttributeItem): BindingOptions {
     const code = this.getBindingCode(propertyDetails.value);
+    if (!code?.length) {
+      throw new Error('Invalid binding expression. Curly brackets are empty');
+    }
+
     const ast = parser.parse(code);
 
     if (ast.program.body.length !== 1 || !t.isExpressionStatement(ast.program.body[0])) {
