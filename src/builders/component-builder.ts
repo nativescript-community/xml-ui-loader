@@ -606,6 +606,23 @@ export class ComponentBuilder {
             ]
           )
         )
+      ]),
+      t.variableDeclaration('let', [
+        t.variableDeclarator(
+          t.objectPattern([
+            t.objectProperty(
+              t.identifier('unsetValue'),
+              t.identifier('unsetValue'),
+              false,
+              true
+            )
+          ]),
+          t.callExpression(
+            t.identifier('require'), [
+              t.stringLiteral('@nativescript/core/ui/core/properties')
+            ]
+          )
+        )
       ])
     );
 
@@ -1066,6 +1083,7 @@ export class ComponentBuilder {
     const bindingSourcePropertyAstCallbacks: t.ObjectProperty[] = [];
     const bindingTargetPropertyAstListenerArgs: Array<t.Expression[]> = [];
     const bindingTargetAstSettersForContextChange: Array<t.ExpressionStatement> = [];
+    const bindingTargetAstUnsetsForContextChange: Array<t.ExpressionStatement> = [];
     const bindingTargetAstSettersPerPropertyMap: Map<string, t.ExpressionStatement[]> = new Map();
     const totalParentKeyAstExpressions: Array<t.Expression> = [];
 
@@ -1080,8 +1098,9 @@ export class ComponentBuilder {
         totalParentKeyAstExpressions.push(...bindingOptions.parentKeyAstExpressions);
       }
 
-      // These statements serve for setting expression values to target properties inside binding context change callback
+      // These statements serve for setting and unsetting expression values to target properties inside binding context change callback
       bindingTargetAstSettersForContextChange.push(this.getPropertySetterAst(viewPropertyDetails.name, bindingOptions.astExpression, t.identifier('view'), viewPropertyDetails.isEventListener));
+      bindingTargetAstUnsetsForContextChange.push(this.getPropertySetterAst(viewPropertyDetails.name, t.identifier('unsetValue'), t.identifier('view'), viewPropertyDetails.isEventListener));
 
       // These mapped target property setters will serve for generating binding source callbacks that will be used from binding property change callback
       for (const propertyName of bindingOptions.properties) {
@@ -1195,7 +1214,7 @@ export class ComponentBuilder {
                     ),
                     args
                   )
-                ))
+                )).concat(bindingTargetAstUnsetsForContextChange)
               )
             ),
             t.ifStatement(
@@ -1241,76 +1260,6 @@ export class ComponentBuilder {
             )
           ])
         ),
-        t.expressionStatement(
-          t.callExpression(
-            t.memberExpression(
-              t.memberExpression(
-                t.identifier('global'),
-                t.identifier(GLOBAL_UI_REF)
-              ),
-              t.identifier('startViewModelToViewUpdate')
-            ), [
-              t.identifier('view'),
-              t.identifier('bindingContext'),
-              t.arrowFunctionExpression(
-                [
-                  t.identifier(VIEW_MODEL_REFERENCE_NAME)
-                ],
-                t.blockStatement([
-                  t.variableDeclaration(
-                    'let', [
-                      t.variableDeclarator(
-                        t.identifier(VALUE_REFERENCE_NAME),
-                        t.identifier(VIEW_MODEL_REFERENCE_NAME)
-                      )
-                    ]
-                  ),
-                  t.variableDeclaration(
-                    'let', [
-                      t.variableDeclarator(
-                        t.identifier(PARENT_REFERENCE_NAME),
-                        t.conditionalExpression(
-                          t.memberExpression(
-                            t.identifier('view'),
-                            t.identifier('parent')
-                          ),
-                          t.memberExpression(
-                            t.memberExpression(
-                              t.identifier('view'),
-                              t.identifier('parent')
-                            ),
-                            t.identifier('bindingContext')
-                          ),
-                          t.nullLiteral()
-                        )
-                      )
-                    ]
-                  ),
-                  t.variableDeclaration(
-                    'let', [
-                      t.variableDeclarator(
-                        t.identifier(PARENTS_REFERENCE_NAME),
-                        totalParentKeyAstExpressions.length ? t.callExpression(
-                          t.memberExpression(
-                            t.memberExpression(
-                              t.identifier('global'),
-                              t.identifier(GLOBAL_UI_REF)
-                            ),
-                            t.identifier('createParentsBindingInstance')
-                          ), [
-                            t.identifier('view'),
-                            t.arrayExpression(totalParentKeyAstExpressions)
-                          ]
-                        ) : t.nullLiteral()
-                      )
-                    ]
-                  ),
-                  ...bindingTargetAstSettersForContextChange
-                ])
-              )
-            ]
-          )
-        ),
         t.ifStatement(
           t.binaryExpression(
             '!=',
@@ -1318,6 +1267,76 @@ export class ComponentBuilder {
             t.nullLiteral()
           ),
           t.blockStatement([
+            t.expressionStatement(
+              t.callExpression(
+                t.memberExpression(
+                  t.memberExpression(
+                    t.identifier('global'),
+                    t.identifier(GLOBAL_UI_REF)
+                  ),
+                  t.identifier('startViewModelToViewUpdate')
+                ), [
+                  t.identifier('view'),
+                  t.identifier('bindingContext'),
+                  t.arrowFunctionExpression(
+                    [
+                      t.identifier(VIEW_MODEL_REFERENCE_NAME)
+                    ],
+                    t.blockStatement([
+                      t.variableDeclaration(
+                        'let', [
+                          t.variableDeclarator(
+                            t.identifier(VALUE_REFERENCE_NAME),
+                            t.identifier(VIEW_MODEL_REFERENCE_NAME)
+                          )
+                        ]
+                      ),
+                      t.variableDeclaration(
+                        'let', [
+                          t.variableDeclarator(
+                            t.identifier(PARENT_REFERENCE_NAME),
+                            t.conditionalExpression(
+                              t.memberExpression(
+                                t.identifier('view'),
+                                t.identifier('parent')
+                              ),
+                              t.memberExpression(
+                                t.memberExpression(
+                                  t.identifier('view'),
+                                  t.identifier('parent')
+                                ),
+                                t.identifier('bindingContext')
+                              ),
+                              t.nullLiteral()
+                            )
+                          )
+                        ]
+                      ),
+                      t.variableDeclaration(
+                        'let', [
+                          t.variableDeclarator(
+                            t.identifier(PARENTS_REFERENCE_NAME),
+                            totalParentKeyAstExpressions.length ? t.callExpression(
+                              t.memberExpression(
+                                t.memberExpression(
+                                  t.identifier('global'),
+                                  t.identifier(GLOBAL_UI_REF)
+                                ),
+                                t.identifier('createParentsBindingInstance')
+                              ), [
+                                t.identifier('view'),
+                                t.arrayExpression(totalParentKeyAstExpressions)
+                              ]
+                            ) : t.nullLiteral()
+                          )
+                        ]
+                      ),
+                      ...bindingTargetAstSettersForContextChange
+                    ])
+                  )
+                ]
+              )
+            ),
             t.ifStatement(
               t.binaryExpression(
                 '==',
