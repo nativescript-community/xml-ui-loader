@@ -1,5 +1,4 @@
 let { Application, Utils, ViewBase } = require('@nativescript/core');
-let { isEventOrGesture } = require('@nativescript/core/ui/core/bindable');
 let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
 
 global.simpleUI = {
@@ -39,42 +38,6 @@ global.simpleUI = {
     }
     return instance;
   },
-  getCompleteBindingSource(bindingContext, callback) {
-    const bindingResources = Application.getResources();
-    const addedBindingContextProperties = [];
-    let source;
-
-    // Ensure source is an object
-    if (bindingContext == null) {
-      source = {};
-    } else {
-      const type = typeof bindingContext;
-      if (type === 'number') {
-        source = new Number(bindingContext);
-      } else if (type === 'boolean') {
-        source = new Boolean(bindingContext);
-      } else if (type === 'string') {
-        source = new String(bindingContext);
-      } else {
-        source = bindingContext;
-      }
-    }
-
-    // Addition of application resources
-    for (let propertyName in bindingResources) {
-      if (!(propertyName in source)) {
-        source[propertyName] = bindingResources[propertyName];
-        addedBindingContextProperties.push(propertyName);
-      }
-    }
-
-    callback(source);
-
-    // Finally, perform a cleanup for view model
-    for (let propertyName of addedBindingContextProperties) {
-      delete source[propertyName];
-    }
-  },
   loadCustomModule(uri, ext) {
     if (ext) {
       uri = uri.substr(0, uri.length - (ext.length + 1));
@@ -102,9 +65,8 @@ global.simpleUI = {
   },
   onBindingSourcePropertyChange(args) {
     let view = this;
-    let bindingContext = args.object;
 
-    global.simpleUI.getCompleteBindingSource(bindingContext, viewModel => {
+    global.simpleUI.startViewModelToViewUpdate(view, view.bindingContext, viewModel => {
       let $value = viewModel;
       let $parent = view.parent ? view.parent.bindingContext : null;
 
@@ -125,7 +87,7 @@ global.simpleUI = {
     }
     return Utils.isFunction(callback) ? callback.apply(null, args) : undefined;
   },
-  setPropertyValue(owner, propertyName, propertyValue, moduleExports) {
+  setPropertyValue(owner, propertyName, propertyValue, isEvent) {
     let instance = owner;
     if (propertyName.indexOf('.') !== -1) {
       const properties = propertyName.split('.');
@@ -139,17 +101,81 @@ global.simpleUI = {
     }
     
     if (instance != null) {
-      if (isEventOrGesture(propertyName, instance)) {
-        // Get the event handler from component module exports
-        const handler = moduleExports?.[propertyValue];
-    
-        // Check if the handler is function and add it to the instance for specified event name
-        if (typeof handler === 'function') {
-          instance.on(propertyName, handler);
+      if (isEvent) {
+        const handlerPropertyName = `_${propertyName}_handler`;
+
+        // Check if old handler is a function and remove it from listeners
+        if (Utils.isFunction(instance[handlerPropertyName])) {
+          instance.off(propertyName, instance[handlerPropertyName]);
+          delete instance[handlerPropertyName];
+        }
+        // Check if new handler is a function and add it to listeners
+        if (Utils.isFunction(propertyValue)) {
+          instance.on(propertyName, propertyValue);
+          instance[handlerPropertyName] = propertyValue;
         }
       } else {
         instance[propertyName] = propertyValue;
       }
+    }
+  },
+  startViewToViewModelUpdate(view, bindingContext, callback) {
+    if (view.isUpdatingBindings) {
+      return;
+    }
+
+    view.isUpdatingBindings = true;
+
+    try {
+      callback(bindingContext);
+    } finally {
+      view.isUpdatingBindings = false;
+    }
+  },
+  startViewModelToViewUpdate(view, bindingContext, callback) {
+    if (view.isUpdatingBindings) {
+      return;
+    }
+
+    view.isUpdatingBindings = true;
+
+    const bindingResources = Application.getResources();
+    const addedBindingContextProperties = [];
+    let source;
+
+    try {
+      // Ensure source is an object
+      if (bindingContext == null) {
+        source = {};
+      } else {
+        const type = typeof bindingContext;
+        if (type === 'number') {
+          source = new Number(bindingContext);
+        } else if (type === 'boolean') {
+          source = new Boolean(bindingContext);
+        } else if (type === 'string') {
+          source = new String(bindingContext);
+        } else {
+          source = bindingContext;
+        }
+      }
+
+      // Addition of application resources
+      for (let propertyName in bindingResources) {
+        if (!(propertyName in source)) {
+          source[propertyName] = bindingResources[propertyName];
+          addedBindingContextProperties.push(propertyName);
+        }
+      }
+
+      callback(source);
+
+      // Finally, perform a cleanup for view model
+      for (let propertyName of addedBindingContextProperties) {
+        delete source[propertyName];
+      }
+    } finally {
+      view.isUpdatingBindings = false;
     }
   }
 };

@@ -1,7 +1,7 @@
 const generate = require('@babel/generator').default;
 const fs = require('fs');
 const { highlight } = require('cli-highlight');
-const { transformIntoAST } = require('../dist/builders/component-builder');
+const { convertDocumentToAST } = require('../dist/xml-parser');
 
 if (process.argv.length < 3) {
   // eslint-disable-next-line no-console
@@ -20,7 +20,7 @@ if (process.argv.length < 3) {
 const parameter = process.argv[process.argv.length - 1];
 const content = process.argv.includes('--inline') ? parameter : fs.readFileSync(parameter, 'utf8');
 
-const { output } = transformIntoAST(content, {
+const { output } = convertDocumentToAST(content, {
   moduleRelativePath: 'views/test/test.xml',
   platform: 'android'
 });

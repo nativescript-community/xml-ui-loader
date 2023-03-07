@@ -2,6 +2,7 @@ import * as parser from '@babel/parser';
 import traverse from '@babel/traverse';
 import * as t from '@babel/types';
 import { GLOBAL_UI_REF } from '../helpers';
+import { AttributeItem } from './base-builder';
 
 const BINDING_REGEX = /\{{(.+?)\}}/;
 const CONVERTER_EXPRESSION_SEPARATOR = '|';
@@ -37,7 +38,7 @@ export const SPECIAL_REFERENCES = [
 ];
 
 export interface BindingOptions {
-  viewPropertyName: string;
+  viewPropertyDetails: AttributeItem;
   properties: Array<string>;
   astExpression: t.Expression;
   isTwoWay: boolean;
@@ -52,25 +53,26 @@ export class BindingBuilder {
     return BINDING_REGEX.test(value);
   }
 
-  public convertValueToBindingOptions(propertyName: string, bindingValue: string): BindingOptions {
-    const code = this.getBindingCode(bindingValue);
+  public convertValueToBindingOptions(propertyDetails: AttributeItem): BindingOptions {
+    const code = this.getBindingCode(propertyDetails.value);
     const ast = parser.parse(code);
 
     if (ast.program.body.length !== 1 || !t.isExpressionStatement(ast.program.body[0])) {
-      throw new Error(`Invalid binding expression. Binding must be a single-line expression statement: ${bindingValue}`);
+      throw new Error(`Invalid binding expression. Binding must be a single-line expression statement: ${propertyDetails.value}`);
     }
 
     const expressionStatement = ast.program.body[0];
     const bindingOptions: BindingOptions = {
-      viewPropertyName: propertyName,
+      viewPropertyDetails: propertyDetails,
       properties: [],
       astExpression: null,
-      isTwoWay: this.isTwoWayBindingExpression(expressionStatement.expression) || this.isConverterExpression(expressionStatement.expression) 
-        && this.isTwoWayBindingExpression(expressionStatement.expression.left),
+      isTwoWay: !propertyDetails.isEventListener && !propertyDetails.isSubProperty && (this.isTwoWayBindingExpression(expressionStatement.expression)
+        || this.isConverterExpression(expressionStatement.expression) 
+        && this.isTwoWayBindingExpression(expressionStatement.expression.left)),
       specialReferenceCount: 0,
       parentKeyAstExpressions: [],
       get [Symbol.toStringTag]() {
-        return bindingValue;
+        return propertyDetails.value;
       }
     };
 
@@ -114,13 +116,33 @@ export class BindingBuilder {
       }
     });
 
-    bindingOptions.astExpression = expressionStatement.expression;
+    // If property is an event listener, make sure that listener function will use view model as context
+    if (bindingOptions.viewPropertyDetails.isEventListener) {
+      bindingOptions.astExpression = this.getEventExpressionWithContext(expressionStatement.expression);
+    } else {
+      bindingOptions.astExpression = expressionStatement.expression;
+    }
+
     // Ensure there are properties as first one is always needed for setting two-way binding value
     if (!bindingOptions.properties.length && bindingOptions.isTwoWay) {
       bindingOptions.isTwoWay = false;
       delete bindingOptions.converterToModelAstExpression;
     }
     return bindingOptions;
+  }
+
+  private getEventExpressionWithContext(astExpression: t.Expression): t.OptionalCallExpression {
+    return t.optionalCallExpression(
+      t.optionalMemberExpression(
+        astExpression,
+        t.identifier('bind'),
+        false,
+        true
+      ), [
+        t.identifier(VIEW_MODEL_REFERENCE_NAME)
+      ],
+      true
+    );
   }
 
   private checkIfBindingExpressionIsValid(ast, bindingOptions: BindingOptions): void {
