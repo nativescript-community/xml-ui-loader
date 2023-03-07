@@ -1,11 +1,12 @@
 import * as t from '@babel/types';
 import { pascalCase } from 'change-case';
-import { Parser } from 'htmlparser2';
 import { join, parse } from 'path';
 import { BindingBuilder, BindingOptions, PARENTS_REFERENCE_NAME, PARENT_REFERENCE_NAME, VALUE_REFERENCE_NAME, VIEW_MODEL_REFERENCE_NAME } from './binding-builder';
 import { AttributeValueFormatter, GLOBAL_UI_REF } from '../helpers';
+import { AttributeItem } from './base-builder';
 
 const ELEMENT_PREFIX = 'el';
+const EVENT_PREFIX = 'on';
 const CODE_FILE = 'codeFile';
 const CSS_FILE = 'cssFile';
 const MULTI_TEMPLATE_KEY_ATTRIBUTE = 'key';
@@ -28,16 +29,12 @@ enum SpecialTags {
 
 interface TagAstInfo {
   body: Array<t.Expression | t.Statement>;
-  indexBeforeNewViewInstance: number; // This index is useful for things like prepending slot views
+  /**
+   * This index is useful for things like prepending slot views.
+   */
+  indexBeforeNewViewInstance: number;
 }
 
-interface ComponentBuilderOptions {
-  moduleRelativePath: string;
-  platform: string;
-  attributeValueFormatter: AttributeValueFormatter;
-}
-
-// Use hasOpenChildTag to check if parent tag is closing
 interface TagInfo {
   index: number;
   tagName: string;
@@ -51,66 +48,16 @@ interface TagInfo {
   slotMap?: Map<string, Array<number>>;
   isCustomComponent: boolean;
   isParentForSlots: boolean;
+  /**
+   * Use this flag to check if parent tag is closing.
+   */
   hasOpenChildTag: boolean;
 }
 
-function getAstForRawXML(content: string): t.Program {
-  return t.program([
-    t.variableDeclaration(
-      'const',
-      [
-        t.variableDeclarator(
-          t.identifier('RAW_XML_CONTENT'),
-          t.stringLiteral(content)
-        )
-      ]
-    ),
-    t.exportDefaultDeclaration(
-      t.identifier('RAW_XML_CONTENT')
-    )
-  ], [], 'module');
-}
-
-export function transformIntoAST(content: string, builderOpts: ComponentBuilderOptions): { output: t.Program; pathsToResolve: Array<string> } {
-  const componentBuilder = new ComponentBuilder(builderOpts);
-  let compilationResult;
-  let needsCompilation = true;
-
-  const xmlParser = new Parser({
-    onopentag(tagName, attributes) {
-      componentBuilder.handleOpenTag(tagName, attributes);
-    },
-    onprocessinginstruction(name) {
-      if (name == '?xml') {
-        needsCompilation = false;
-        xmlParser.reset();
-      }
-    },
-    onclosetag(tagName) {
-      componentBuilder.handleCloseTag(tagName);
-    },
-    onerror(err) {
-      throw err;
-    }
-  }, {
-    xmlMode: true
-  });
-  xmlParser.write(content);
-  xmlParser.end();
-
-  if (needsCompilation) {
-    compilationResult = {
-      output: componentBuilder.getModuleAst(),
-      pathsToResolve: componentBuilder.getPathsToResolve()
-    };
-  } else {
-    compilationResult = {
-      output: getAstForRawXML(content),
-      pathsToResolve: []
-    };
-  }
-
-  return compilationResult;
+export interface ComponentBuilderOptions {
+  moduleRelativePath: string;
+  platform: string;
+  attributeValueFormatter: AttributeValueFormatter;
 }
 
 export class ComponentBuilder {
@@ -123,7 +70,9 @@ export class ComponentBuilder {
   private moduleDirPath: string;
   private bindingBuilder: BindingBuilder;
 
-  // Keep counter for the case of platform tags being inside platform tags
+  /**
+   * Keep counter for the case of platform tags being inside platform tags.
+   */
   private unsupportedPlatformTagCount: number = 0;
 
   private treeIndex: number = -1;
@@ -134,7 +83,6 @@ export class ComponentBuilder {
   private moduleAst: t.Program;
   private astBindingCallbacksBody: Array<t.Declaration> = [];
   private astConstructorBody: Array<t.Statement> = [];
-  private astCustomModuleProperties: Array<t.ObjectProperty> = [];
   private astCustomModulesRegister: Array<t.Statement> = [];
 
   constructor(options: ComponentBuilderOptions) {
@@ -261,7 +209,6 @@ export class ComponentBuilder {
     } else if (tagName === SpecialTags.TEMPLATE) {
       if (openTagInfo != null) {
         if (openTagInfo.type === ElementType.TEMPLATE_ARRAY) {
-          // This is necessary for proper string escape
           const attrValue = MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes ? attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE] : '';
 
           newTagInfo.index = openTagInfo.index;
@@ -408,11 +355,19 @@ export class ComponentBuilder {
           this.usedNSTags.add(tagName);
         }
 
+        // View imports and properties
+        const { namespaces, properties } = this.traverseAttributes(tagName, attributes);
+
+        // Register modules to module name resolver
+        this.registerNamespaces(namespaces, newTagInfo.astInfo.body);
+
         // Create view instance
         newTagInfo.astInfo.body.push(
           ...this.buildComponentAst(this.treeIndex, elementName, prefix, parentTagName)
         );
-        this.handleAttributeValues(this.treeIndex, tagName, attributes, newTagInfo.astInfo);
+
+        // View properties and bindings
+        this.handleViewProperties(this.treeIndex, tagName, properties, newTagInfo.astInfo.body);
       }
     }
 
@@ -578,7 +533,7 @@ export class ComponentBuilder {
       t.variableDeclaration('let', [
         t.variableDeclarator(
           t.identifier('customModules'),
-          t.objectExpression(this.astCustomModuleProperties)
+          t.objectExpression([])
         )
       ])
     );
@@ -756,32 +711,26 @@ export class ComponentBuilder {
     }
   }
 
-  private handleAttributeValues(treeIndex: number, tagName, attributes, tagAstInfo: TagAstInfo) {
+  private handleViewProperties(treeIndex: number, tagName, properties: Array<AttributeItem>, astBody: Array<t.Expression | t.Statement>) {
     const bindingOptionData: Array<BindingOptions> = [];
 
-    // Handle view properties
-    this.traverseAttributes(attributes, (propertyName: string, prefix: string, value: string) => {
-      if (this.options.attributeValueFormatter) {
-        value = this.options.attributeValueFormatter(value, propertyName, tagName, attributes) ?? '';
-      }
-
-      // Namespaces work as module imports
-      if (prefix === 'xmlns') {
-        this.registerNamespace(propertyName, value);
+    for (const propertyDetails of properties) {
+      // If property value is enclosed in curly brackets, then it's a binding expression
+      if (this.bindingBuilder.isBindingValue(propertyDetails.value)) {
+        bindingOptionData.push(this.bindingBuilder.convertValueToBindingOptions(propertyDetails));
       } else {
-        // If property value is enclosed in curly brackets, then it's a binding expression
-        if (this.bindingBuilder.isBindingValue(value)) {
-          bindingOptionData.push(this.bindingBuilder.convertValueToBindingOptions(propertyName, value));
-        } else {
-          tagAstInfo.body.push(this.getPropertySetterAst(propertyName, t.stringLiteral(value), t.identifier(ELEMENT_PREFIX + this.treeIndex), true));
-        }
+        astBody.push(this.getPropertySetterAst(propertyDetails.name, propertyDetails.isEventListener ? t.memberExpression(
+          t.identifier('moduleExports'),
+          t.stringLiteral(propertyDetails.value),
+          true
+        ) : t.stringLiteral(propertyDetails.value), t.identifier(ELEMENT_PREFIX + this.treeIndex), propertyDetails.isEventListener));
       }
-    });
+    }
 
     // Check if view has property bindings
     if (bindingOptionData.length) {
       // Add listener for tracking binding context changes
-      tagAstInfo.body.push(
+      astBody.push(
         t.expressionStatement(
           t.callExpression(
             t.memberExpression(
@@ -800,15 +749,14 @@ export class ComponentBuilder {
     }
   }
 
-  private traverseAttributes(attributes, callback?: (propertyName: string, prefix: string, propertyValue: string) => void) {
-    // Ignore unused attributes
-    if ('xmlns' in attributes) {
-      delete attributes['xmlns'];
-    }
+  private traverseAttributes(tagName: string, attributes): { namespaces: Array<AttributeItem>; properties: Array<AttributeItem> } {
+    const namespaces: Array<AttributeItem> = new Array<AttributeItem>();
+    const properties: Array<AttributeItem> = new Array<AttributeItem>();
 
     const entries = Object.entries(attributes) as any;
-    for (const [name, value] of entries) {
-      if (name === 'slot') {
+    for (const [ name, value ] of entries) {
+      // Ignore special attributes
+      if (name === 'slot' || name === 'xmlns') {
         continue;
       }
 
@@ -820,11 +768,41 @@ export class ComponentBuilder {
         }
       }
 
-      callback && callback(propertyName, prefix, value);
+      let propertyValue;
+
+      // Custom attribute value formatting
+      if (this.options.attributeValueFormatter) {
+        propertyValue = this.options.attributeValueFormatter(value, propertyName, tagName, attributes) ?? '';
+      } else {
+        propertyValue = value;
+      }
+
+      // Namespaces work as module imports
+      if (prefix === 'xmlns') {
+        namespaces.push({
+          name: propertyName,
+          value: propertyValue,
+          isEventListener: false,
+          isSubProperty: false
+        });
+      } else {
+        properties.push({
+          prefix,
+          name: propertyName,
+          value: propertyValue,
+          isEventListener: prefix === EVENT_PREFIX,
+          isSubProperty: propertyName.includes('.')
+        });
+      }
     }
+
+    return {
+      namespaces,
+      properties
+    };
   }
 
-  private getPropertySetterAst(propertyName: string, valueExpression: t.Expression, identifier: t.Identifier, includeModuleExports: boolean): t.ExpressionStatement {
+  private getPropertySetterAst(propertyName: string, valueExpression: t.Expression, identifier: t.Identifier, isEventListener: boolean): t.ExpressionStatement {
     return t.expressionStatement(
       t.callExpression(
         t.memberExpression(
@@ -837,7 +815,7 @@ export class ComponentBuilder {
           identifier,
           t.stringLiteral(propertyName),
           valueExpression,
-          includeModuleExports ? t.identifier('moduleExports') : t.nullLiteral()
+          t.booleanLiteral(isEventListener)
         ]
       )
     );
@@ -1000,19 +978,23 @@ export class ComponentBuilder {
         [
           t.variableDeclarator(
             t.identifier('moduleExports'),
-            t.conditionalExpression(
-              t.identifier('resolvedCodeModuleName'),
-              t.callExpression(
-                t.memberExpression(
-                  t.identifier('global'),
-                  t.identifier('loadModule')
+            t.logicalExpression(
+              '??',
+              t.conditionalExpression(
+                t.identifier('resolvedCodeModuleName'),
+                t.callExpression(
+                  t.memberExpression(
+                    t.identifier('global'),
+                    t.identifier('loadModule')
+                  ),
+                  [
+                    t.identifier('resolvedCodeModuleName'),
+                    t.booleanLiteral(true)
+                  ]
                 ),
-                [
-                  t.identifier('resolvedCodeModuleName'),
-                  t.booleanLiteral(true)
-                ]
+                t.identifier('moduleExportsFallback')
               ),
-              t.identifier('moduleExportsFallback')
+              t.objectExpression([])
             )
           )
         ]
@@ -1027,7 +1009,7 @@ export class ComponentBuilder {
         null,
         [
           t.identifier('view'),
-          t.identifier('viewModel'),
+          t.identifier(VIEW_MODEL_REFERENCE_NAME),
           t.identifier('bindingScopes')
         ],
         t.blockStatement([
@@ -1090,6 +1072,7 @@ export class ComponentBuilder {
     // Generate functions for listening to binding property changes
     for (let i = 0, length = bindingOptionData.length; i < length; i++) {
       const bindingOptions = bindingOptionData[i];
+      const viewPropertyDetails = bindingOptions.viewPropertyDetails;
       const bindingTargetPropertyCallbackName = `_on_${elementRef}BindingTargetProperty${i}Change`;
 
       // Populate expressions used by $parents references
@@ -1098,11 +1081,11 @@ export class ComponentBuilder {
       }
 
       // These statements serve for setting expression values to target properties inside binding context change callback
-      bindingTargetAstSettersForContextChange.push(this.getPropertySetterAst(bindingOptions.viewPropertyName, bindingOptions.astExpression, t.identifier('view'), false));
+      bindingTargetAstSettersForContextChange.push(this.getPropertySetterAst(viewPropertyDetails.name, bindingOptions.astExpression, t.identifier('view'), viewPropertyDetails.isEventListener));
 
       // These mapped target property setters will serve for generating binding source callbacks that will be used from binding property change callback
       for (const propertyName of bindingOptions.properties) {
-        const bindingTargetPropertyAstSetter = this.getPropertySetterAst(bindingOptions.viewPropertyName, bindingOptions.astExpression, t.identifier('view'), false);
+        const bindingTargetPropertyAstSetter = this.getPropertySetterAst(viewPropertyDetails.name, bindingOptions.astExpression, t.identifier('view'), viewPropertyDetails.isEventListener);
 
         if (bindingTargetAstSettersPerPropertyMap.has(propertyName)) {
           bindingTargetAstSettersPerPropertyMap.get(propertyName).push(bindingTargetPropertyAstSetter);
@@ -1119,7 +1102,7 @@ export class ComponentBuilder {
 
         // These arguments are used for adding/removing event listeners for binding target properties
         bindingTargetPropertyAstListenerArgs.push([
-          t.stringLiteral(`${bindingOptions.viewPropertyName}Change`),
+          t.stringLiteral(`${viewPropertyDetails.name}Change`),
           t.identifier(bindingTargetPropertyCallbackName)
         ]);
       }
@@ -1265,8 +1248,9 @@ export class ComponentBuilder {
                 t.identifier('global'),
                 t.identifier(GLOBAL_UI_REF)
               ),
-              t.identifier('getCompleteBindingSource')
+              t.identifier('startViewModelToViewUpdate')
             ), [
+              t.identifier('view'),
               t.identifier('bindingContext'),
               t.arrowFunctionExpression(
                 [
@@ -1406,7 +1390,7 @@ export class ComponentBuilder {
     let bindingExpression;
     if (bindingOptions.converterToModelAstExpression != null) {
       if (!bindingOptions.converterToModelAstExpression.expressions.length) {
-        throw new Error(`Invalid converter expression for property '${bindingOptions.viewPropertyName}': ${bindingOptions.toString()}`);
+        throw new Error(`Invalid converter expression for property '${bindingOptions.viewPropertyDetails.name}': ${bindingOptions.toString()}`);
       }
       bindingExpression = bindingOptions.converterToModelAstExpression.expressions[0];
     } else {
@@ -1434,154 +1418,177 @@ export class ComponentBuilder {
             )
           ]
         ),
-        t.variableDeclaration(
-          'let', [
-            t.variableDeclarator(
-              t.identifier(VIEW_MODEL_REFERENCE_NAME),
+        t.expressionStatement(
+          t.callExpression(
+            t.memberExpression(
+              t.memberExpression(
+                t.identifier('global'),
+                t.identifier(GLOBAL_UI_REF)
+              ),
+              t.identifier('startViewToViewModelUpdate')
+            ), [
+              t.identifier('view'),
               t.memberExpression(
                 t.identifier('view'),
                 t.identifier('bindingContext')
-              )
-            )
-          ]
-        ),
-        t.variableDeclaration(
-          'let', [
-            t.variableDeclarator(
-              t.identifier(VALUE_REFERENCE_NAME),
-              t.identifier(VIEW_MODEL_REFERENCE_NAME)
-            )
-          ]
-        ),
-        t.variableDeclaration(
-          'let', [
-            t.variableDeclarator(
-              t.identifier(PARENT_REFERENCE_NAME),
-              t.conditionalExpression(
-                t.memberExpression(
-                  t.identifier('view'),
-                  t.identifier('parent')
-                ),
-                t.memberExpression(
-                  t.memberExpression(
-                    t.identifier('view'),
-                    t.identifier('parent')
+              ),
+              t.arrowFunctionExpression(
+                [
+                  t.identifier(VIEW_MODEL_REFERENCE_NAME)
+                ],
+                t.blockStatement([
+                  t.variableDeclaration(
+                    'let', [
+                      t.variableDeclarator(
+                        t.identifier(VALUE_REFERENCE_NAME),
+                        t.identifier(VIEW_MODEL_REFERENCE_NAME)
+                      )
+                    ]
                   ),
-                  t.identifier('bindingContext')
-                ),
-                t.nullLiteral()
-              )
-            )
-          ]
-        ),
-        t.variableDeclaration(
-          'let', [
-            t.variableDeclarator(
-              t.identifier(PARENTS_REFERENCE_NAME),
-              bindingOptions.parentKeyAstExpressions.length ? t.callExpression(
-                t.memberExpression(
-                  t.memberExpression(
-                    t.identifier('global'),
-                    t.identifier(GLOBAL_UI_REF)
+                  t.variableDeclaration(
+                    'let', [
+                      t.variableDeclarator(
+                        t.identifier(PARENT_REFERENCE_NAME),
+                        t.conditionalExpression(
+                          t.memberExpression(
+                            t.identifier('view'),
+                            t.identifier('parent')
+                          ),
+                          t.memberExpression(
+                            t.memberExpression(
+                              t.identifier('view'),
+                              t.identifier('parent')
+                            ),
+                            t.identifier('bindingContext')
+                          ),
+                          t.nullLiteral()
+                        )
+                      )
+                    ]
                   ),
-                  t.identifier('createParentsBindingInstance')
-                ), [
-                  t.identifier('view'),
-                  t.arrayExpression(bindingOptions.parentKeyAstExpressions)
-                ]
-              ) : t.nullLiteral()
-            )
-          ]
-        ),
-        // Since we can't have optional chaining as left-hand side assignment, let's store and use it as a variable
-        t.variableDeclaration(
-          'let', [
-            t.variableDeclarator(
-              t.identifier('propertyOwner'),
-              memberObjectAst
-            )
-          ]
-        ),
-        // Ensure accessed instance is not null or undefined and apply new value
-        t.ifStatement(
-          t.binaryExpression(
-            '!=',
-            t.identifier('propertyOwner'),
-            t.nullLiteral()
-          ),
-          t.blockStatement([
-            t.expressionStatement(
-              t.assignmentExpression(
-                '=',
-                t.memberExpression(
-                  t.identifier('propertyOwner'),
-                  memberPropertyAst,
-                  true
-                ),
-                bindingOptions.converterToModelAstExpression != null ? bindingOptions.converterToModelAstExpression.expressions[1] : t.memberExpression(
-                  t.identifier('args'),
-                  t.identifier('value')
-                )
+                  t.variableDeclaration(
+                    'let', [
+                      t.variableDeclarator(
+                        t.identifier(PARENTS_REFERENCE_NAME),
+                        bindingOptions.parentKeyAstExpressions.length ? t.callExpression(
+                          t.memberExpression(
+                            t.memberExpression(
+                              t.identifier('global'),
+                              t.identifier(GLOBAL_UI_REF)
+                            ),
+                            t.identifier('createParentsBindingInstance')
+                          ), [
+                            t.identifier('view'),
+                            t.arrayExpression(bindingOptions.parentKeyAstExpressions)
+                          ]
+                        ) : t.nullLiteral()
+                      )
+                    ]
+                  ),
+                  // Since we can't have optional chaining as left-hand side assignment, let's store and use it as a variable
+                  t.variableDeclaration(
+                    'let', [
+                      t.variableDeclarator(
+                        t.identifier('propertyOwner'),
+                        memberObjectAst
+                      )
+                    ]
+                  ),
+                  // Ensure accessed instance is not null or undefined and apply new value
+                  t.ifStatement(
+                    t.binaryExpression(
+                      '!=',
+                      t.identifier('propertyOwner'),
+                      t.nullLiteral()
+                    ),
+                    t.blockStatement([
+                      t.expressionStatement(
+                        t.assignmentExpression(
+                          '=',
+                          t.memberExpression(
+                            t.identifier('propertyOwner'),
+                            memberPropertyAst,
+                            true
+                          ),
+                          bindingOptions.converterToModelAstExpression != null ? bindingOptions.converterToModelAstExpression.expressions[1] : t.memberExpression(
+                            t.identifier('args'),
+                            t.identifier('value')
+                          )
+                        )
+                      )
+                    ])
+                  )
+                ])
               )
-            )
-          ])
+            ]
+          )
         )
       ])
     );
   }
 
-  private registerNamespace(propertyName, propertyValue): void {
-    /**
-     * By default, virtual-entry-javascript registers all application js, xml, and css files as modules.
-     * Registering namespaces will ensure node modules are also included in module register.
-     * However, we have to ensure that the resolved path of files is used as module key so that module-name-resolver works properly.
-     */
-    this.pathsToResolve.push(propertyValue);
-    const resolvedPath = this.getResolvedPath(propertyValue);
-    const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
+  private registerNamespaces(namespaces: Array<AttributeItem>, astBody: Array<t.Expression | t.Statement>): void {
+    for (const { name, value } of namespaces) {
+      const resolvedPath = this.getResolvedPath(value);
+      const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
 
-    // Register module using resolve path as key and overwrite old registration if any
-    this.astCustomModulesRegister.push(
-      t.expressionStatement(
-        t.callExpression(
-          t.memberExpression(
-            t.identifier('global'),
-            t.identifier('registerModule')
-          ),
-          [
-            t.stringLiteral(resolvedPath),
-            t.arrowFunctionExpression(
-              [],
-              t.callExpression(
-                t.identifier('require'),
-                [
-                  t.stringLiteral(propertyValue)
-                ]
-              )
-            )
-          ]
-        )
-      )
-    );
+      /**
+       * By default, virtual-entry-javascript registers all application js, xml, and css files as modules.
+       * Registering namespaces will ensure node modules are also included in module register.
+       * However, we have to ensure that the resolved path of files is used as module key so that module-name-resolver works properly.
+       */
+      this.pathsToResolve.push(value);
 
-    this.astCustomModuleProperties.push(
-      t.objectProperty(
-        t.stringLiteral(propertyName),
-        t.callExpression(
-          t.memberExpression(
+      // Register module using resolve path as key and overwrite old registration if any
+      this.astCustomModulesRegister.push(
+        t.expressionStatement(
+          t.callExpression(
             t.memberExpression(
               t.identifier('global'),
-              t.identifier(GLOBAL_UI_REF)
+              t.identifier('registerModule')
             ),
-            t.identifier('loadCustomModule')
-          ),
-          [
-            t.stringLiteral(resolvedPath),
-            t.stringLiteral(ext)
-          ]
+            [
+              t.stringLiteral(resolvedPath),
+              t.arrowFunctionExpression(
+                [],
+                t.callExpression(
+                  t.identifier('require'),
+                  [
+                    t.stringLiteral(value)
+                  ]
+                )
+              )
+            ]
+          )
         )
-      )
-    );
+      );
+
+      astBody.push(
+        t.expressionStatement(
+          t.assignmentExpression(
+            '=',
+            t.memberExpression(
+              t.identifier('customModules'),
+              t.stringLiteral(name),
+              true
+            ),
+            t.callExpression(
+              t.memberExpression(
+                t.memberExpression(
+                  t.identifier('global'),
+                  t.identifier(GLOBAL_UI_REF)
+                ),
+                t.identifier('loadCustomModule')
+              ),
+              [
+                t.stringLiteral(resolvedPath),
+                t.stringLiteral(ext)
+              ]
+            )
+          )
+        )
+      );
+    }
   }
 
   private getLocalAndPrefixByName(name: string): string[] {
