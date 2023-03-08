@@ -223,7 +223,13 @@ export class BindingBuilder {
       const callExpression: t.CallExpression | t.OptionalCallExpression = node.right as any;
 
       callee = <t.Expression>callExpression.callee;
-      args.push(...callExpression.arguments);
+
+      if (callExpression.arguments.length) {
+        args.push(...callExpression.arguments);
+      } else {
+        // For HMR to be able to tell the difference between myConverter() and myConverter, we append an undefined parameter in the case of call expression
+        args.push(t.identifier('undefined'));
+      }
     } else {
       callee = node.right;
     }
