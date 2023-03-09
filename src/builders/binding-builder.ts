@@ -110,6 +110,14 @@ export class BindingBuilder {
         ));
       },
       exit: (path) => {
+        const parentPath = path.parentPath;
+        if (parentPath != null) {
+          // In the case of converters, we ensure expression is a two-way binding by checking left-side reference
+          if (bindingOptions.isTwoWay && !bindingOptions.properties.length && this.isConverterExpression(parentPath.node) && path.node === parentPath.node.left) {
+            bindingOptions.isTwoWay = false;
+          }
+        }
+
         /**
          * Always handle converters after they get fully traversed.
          * It helps with the order of bindable properties and builder does not append 'viewModel' caller to them.
