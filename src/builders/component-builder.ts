@@ -563,7 +563,12 @@ export class ComponentBuilder {
     astBody.push(
       t.variableDeclaration('let', [
         t.variableDeclarator(
-          t.objectPattern([
+          t.objectPattern(usedTagNames.map(tagName => t.objectProperty(
+            t.identifier(tagName),
+            t.identifier(tagName),
+            false,
+            true
+          )).concat([
             t.objectProperty(
               t.identifier('addWeakEventListener'),
               t.identifier('addWeakEventListener'),
@@ -579,10 +584,16 @@ export class ComponentBuilder {
             t.objectProperty(
               t.identifier('removeWeakEventListener'),
               t.identifier('removeWeakEventListener'),
+              false,
+              true
+            ),
+            t.objectProperty(
+              t.identifier('unsetValue'),
+              t.identifier('unsetValue'),
               false,
               true
             )
-          ]),
+          ])),
           t.callExpression(
             t.identifier('require'), [
               t.stringLiteral('@nativescript/core')
@@ -603,43 +614,6 @@ export class ComponentBuilder {
           t.callExpression(
             t.identifier('require'), [
               t.stringLiteral('@nativescript/core/module-name-resolver')
-            ]
-          )
-        )
-      ]),
-      t.variableDeclaration('let', [
-        t.variableDeclarator(
-          t.objectPattern([
-            t.objectProperty(
-              t.identifier('unsetValue'),
-              t.identifier('unsetValue'),
-              false,
-              true
-            )
-          ]),
-          t.callExpression(
-            t.identifier('require'), [
-              t.stringLiteral('@nativescript/core/ui/core/properties')
-            ]
-          )
-        )
-      ])
-    );
-
-    usedTagNames.length && astBody.push(
-      t.variableDeclaration('let', [
-        t.variableDeclarator(
-          t.objectPattern(
-            usedTagNames.map(tagName => t.objectProperty(
-              t.identifier(tagName),
-              t.identifier(tagName),
-              false,
-              true
-            ))
-          ),
-          t.callExpression(
-            t.identifier('require'), [
-              t.stringLiteral('@nativescript/core/ui')
             ]
           )
         )
