@@ -1,4 +1,4 @@
-let { Application, Utils, ViewBase } = require('@nativescript/core');
+let { Application, Utils, unsetValue, ViewBase } = require('@nativescript/core');
 let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
 
 global.simpleUI = {
@@ -98,6 +98,11 @@ global.simpleUI = {
         }
       }
       propertyName = properties[properties.length - 1];
+    }
+
+    // Use unset value as default if expression result is undefined
+    if (Utils.isUndefined(propertyValue)) {
+      propertyValue = unsetValue;
     }
     
     if (instance != null) {
