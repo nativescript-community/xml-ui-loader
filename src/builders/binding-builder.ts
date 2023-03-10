@@ -256,6 +256,7 @@ export class BindingBuilder {
           ), [
             callee,
             t.arrayExpression([
+              t.identifier(VIEW_MODEL_REFERENCE_NAME),
               t.memberExpression(
                 t.identifier('args'),
                 t.identifier('value')
@@ -280,6 +281,7 @@ export class BindingBuilder {
         ), [
           callee,
           t.arrayExpression([
+            t.identifier(VIEW_MODEL_REFERENCE_NAME),
             node.left,
             ...args
           ])

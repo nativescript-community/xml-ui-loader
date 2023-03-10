@@ -78,14 +78,14 @@ global.simpleUI = {
       }
     });
   },
-  runConverterCallback(converter, args, toModelDirection = false) {
+  runConverterCallback(context, converter, args, toModelDirection = false) {
     let callback;
     if (!Utils.isNullOrUndefined(converter) && Utils.isObject(converter)) {
       callback = (toModelDirection ? converter.toModel : converter.toView);
     } else {
       callback = converter;
     }
-    return Utils.isFunction(callback) ? callback.apply(null, args) : undefined;
+    return Utils.isFunction(callback) ? callback.apply(context, args) : undefined;
   },
   setPropertyValue(owner, propertyName, propertyValue, isEvent) {
     let instance = owner;
