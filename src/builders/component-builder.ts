@@ -710,11 +710,11 @@ export class ComponentBuilder {
       if (this.bindingBuilder.isBindingValue(propertyDetails.value)) {
         bindingOptionData.push(this.bindingBuilder.convertValueToBindingOptions(propertyDetails));
       } else {
-        astBody.push(this.getPropertySetterAst(propertyDetails.name, propertyDetails.isEventListener ? t.memberExpression(
+        astBody.push(this.getPropertySetterAst(propertyDetails.name, (propertyDetails.isEventListener ? t.memberExpression(
           t.identifier('moduleExports'),
           t.stringLiteral(propertyDetails.value),
           true
-        ) : t.stringLiteral(propertyDetails.value), t.identifier(ELEMENT_PREFIX + this.treeIndex), propertyDetails.isEventListener));
+        ) : t.stringLiteral(propertyDetails.value)), t.identifier(ELEMENT_PREFIX + this.treeIndex), propertyDetails.isEventListener, true));
       }
     }
 
@@ -793,7 +793,7 @@ export class ComponentBuilder {
     };
   }
 
-  private getPropertySetterAst(propertyName: string, valueExpression: t.Expression, identifier: t.Identifier, isEventListener: boolean): t.ExpressionStatement {
+  private getPropertySetterAst(propertyName: string, valueExpression: t.Expression, identifier: t.Identifier, isEventListener: boolean, notifyForChanges: boolean): t.ExpressionStatement {
     return t.expressionStatement(
       t.callExpression(
         t.memberExpression(
@@ -806,7 +806,8 @@ export class ComponentBuilder {
           identifier,
           t.stringLiteral(propertyName),
           valueExpression,
-          t.booleanLiteral(isEventListener)
+          t.booleanLiteral(isEventListener),
+          t.booleanLiteral(notifyForChanges)
         ]
       )
     );
@@ -1073,12 +1074,12 @@ export class ComponentBuilder {
       }
 
       // These statements serve for setting and unsetting expression values to target properties inside binding context change callback
-      bindingTargetAstSettersForContextChange.push(this.getPropertySetterAst(viewPropertyDetails.name, bindingOptions.astExpression, t.identifier('view'), viewPropertyDetails.isEventListener));
-      bindingTargetAstUnsetsForContextChange.push(this.getPropertySetterAst(viewPropertyDetails.name, t.identifier('unsetValue'), t.identifier('view'), viewPropertyDetails.isEventListener));
+      bindingTargetAstSettersForContextChange.push(this.getPropertySetterAst(viewPropertyDetails.name, bindingOptions.astExpression, t.identifier('view'), viewPropertyDetails.isEventListener, false));
+      bindingTargetAstUnsetsForContextChange.push(this.getPropertySetterAst(viewPropertyDetails.name, t.identifier('unsetValue'), t.identifier('view'), viewPropertyDetails.isEventListener, false));
 
       // These mapped target property setters will serve for generating binding source callbacks that will be used from binding property change callback
       for (const propertyName of bindingOptions.properties) {
-        const bindingTargetPropertyAstSetter = this.getPropertySetterAst(viewPropertyDetails.name, bindingOptions.astExpression, t.identifier('view'), viewPropertyDetails.isEventListener);
+        const bindingTargetPropertyAstSetter = this.getPropertySetterAst(viewPropertyDetails.name, bindingOptions.astExpression, t.identifier('view'), viewPropertyDetails.isEventListener, false);
 
         if (bindingTargetAstSettersPerPropertyMap.has(propertyName)) {
           bindingTargetAstSettersPerPropertyMap.get(propertyName).push(bindingTargetPropertyAstSetter);
