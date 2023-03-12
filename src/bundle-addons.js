@@ -1,4 +1,4 @@
-let { Application, Utils, unsetValue, ViewBase } = require('@nativescript/core');
+let { Application, Observable, Utils, unsetValue, ViewBase } = require('@nativescript/core');
 let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
 
 global.simpleUI = {
@@ -87,7 +87,7 @@ global.simpleUI = {
     }
     return Utils.isFunction(callback) ? callback.apply(context, args) : undefined;
   },
-  setPropertyValue(owner, propertyName, propertyValue, isEvent) {
+  setPropertyValue(owner, propertyName, propertyValue, isEvent, notifyForChanges = true) {
     let instance = owner;
     if (propertyName.indexOf('.') !== -1) {
       const properties = propertyName.split('.');
@@ -119,6 +119,8 @@ global.simpleUI = {
           instance.on(propertyName, propertyValue);
           instance[handlerPropertyName] = propertyValue;
         }
+      } else if (!notifyForChanges && instance instanceof Observable) {
+        instance.set(propertyName, propertyValue);
       } else {
         instance[propertyName] = propertyValue;
       }
