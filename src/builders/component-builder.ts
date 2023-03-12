@@ -708,7 +708,10 @@ export class ComponentBuilder {
     for (const propertyDetails of properties) {
       // If property value is enclosed in curly brackets, then it's a binding expression
       if (this.bindingBuilder.isBindingValue(propertyDetails.value)) {
-        bindingOptionData.push(this.bindingBuilder.convertValueToBindingOptions(propertyDetails));
+        const bindingOptions: BindingOptions = this.bindingBuilder.convertValueToBindingOptions(propertyDetails);
+        if (bindingOptions != null) {
+          bindingOptionData.push(bindingOptions);
+        }
       } else {
         astBody.push(this.getPropertySetterAst(propertyDetails.name, (propertyDetails.isEventListener ? t.memberExpression(
           t.identifier('moduleExports'),
@@ -747,7 +750,7 @@ export class ComponentBuilder {
     const entries = Object.entries(attributes) as any;
     for (const [ name, value ] of entries) {
       // Ignore special attributes
-      if (name === 'slot' || name === 'xmlns') {
+      if (name === 'slot' || name === 'xmlns' || name === CSS_FILE || name === CODE_FILE) {
         continue;
       }
 
