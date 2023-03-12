@@ -25,6 +25,7 @@ const BINDING_AST_VALIDATORS = [
   t.isUnaryExpression
 ];
 
+export const BINDING_CONTEXT_PROPERTY_NAME = 'bindingContext';
 export const VIEW_MODEL_REFERENCE_NAME = 'viewModel';
 
 export const VALUE_REFERENCE_NAME = '$value';

@@ -1,7 +1,7 @@
 import * as t from '@babel/types';
 import { pascalCase } from 'change-case';
 import { join, parse } from 'path';
-import { BindingBuilder, BindingOptions, PARENTS_REFERENCE_NAME, PARENT_REFERENCE_NAME, VALUE_REFERENCE_NAME, VIEW_MODEL_REFERENCE_NAME } from './binding-builder';
+import { BindingBuilder, BindingOptions, BINDING_CONTEXT_PROPERTY_NAME, PARENTS_REFERENCE_NAME, PARENT_REFERENCE_NAME, VALUE_REFERENCE_NAME, VIEW_MODEL_REFERENCE_NAME } from './binding-builder';
 import { AttributeValueFormatter, GLOBAL_UI_REF } from '../helpers';
 import { AttributeItem } from './base-builder';
 
@@ -754,6 +754,11 @@ export class ComponentBuilder {
         continue;
       }
 
+      // Binding context should not be set in markup
+      if (name === BINDING_CONTEXT_PROPERTY_NAME) {
+        throw new Error(`Cannot set binding context in markup. Tag: ${tagName}`);
+      }
+
       const [propertyName, prefix] = this.getLocalAndPrefixByName(name);
       if (prefix != null) {
         // Platform-based attributes
@@ -1255,7 +1260,7 @@ export class ComponentBuilder {
                   t.identifier('startViewModelToViewUpdate')
                 ), [
                   t.identifier('view'),
-                  t.identifier('bindingContext'),
+                  t.identifier(BINDING_CONTEXT_PROPERTY_NAME),
                   t.arrowFunctionExpression(
                     [
                       t.identifier(VIEW_MODEL_REFERENCE_NAME)
@@ -1283,7 +1288,7 @@ export class ComponentBuilder {
                                   t.identifier('view'),
                                   t.identifier('parent')
                                 ),
-                                t.identifier('bindingContext')
+                                t.identifier(BINDING_CONTEXT_PROPERTY_NAME)
                               ),
                               t.nullLiteral()
                             )
@@ -1431,7 +1436,7 @@ export class ComponentBuilder {
               t.identifier('view'),
               t.memberExpression(
                 t.identifier('view'),
-                t.identifier('bindingContext')
+                t.identifier(BINDING_CONTEXT_PROPERTY_NAME)
               ),
               t.arrowFunctionExpression(
                 [
@@ -1460,7 +1465,7 @@ export class ComponentBuilder {
                               t.identifier('view'),
                               t.identifier('parent')
                             ),
-                            t.identifier('bindingContext')
+                            t.identifier(BINDING_CONTEXT_PROPERTY_NAME)
                           ),
                           t.nullLiteral()
                         )
