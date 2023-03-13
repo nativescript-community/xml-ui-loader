@@ -255,9 +255,9 @@ export class BindingBuilder {
             ),
             t.identifier('runConverterCallback')
           ), [
+            t.identifier(VIEW_MODEL_REFERENCE_NAME),
             callee,
             t.arrayExpression([
-              t.identifier(VIEW_MODEL_REFERENCE_NAME),
               t.memberExpression(
                 t.identifier('args'),
                 t.identifier('value')
@@ -280,9 +280,9 @@ export class BindingBuilder {
           ),
           t.identifier('runConverterCallback')
         ), [
+          t.identifier(VIEW_MODEL_REFERENCE_NAME),
           callee,
           t.arrayExpression([
-            t.identifier(VIEW_MODEL_REFERENCE_NAME),
             node.left,
             ...args
           ])
