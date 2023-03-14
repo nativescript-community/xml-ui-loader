@@ -334,6 +334,11 @@ export class ComponentBuilder {
         this.isInSlotFallbackScope = true;
       } else {
         const [elementName, prefix] = this.getLocalAndPrefixByName(tagName);
+        // View imports and properties
+        const { namespaces, properties } = this.traverseAttributes(tagName, attributes);
+
+        // Register modules to module name resolver (before setting indexBeforeNewViewInstance)
+        this.registerNamespaces(namespaces, newTagInfo.astInfo.body);
 
         if (prefix != null) {
           newTagInfo.isCustomComponent = true;
@@ -354,12 +359,6 @@ export class ComponentBuilder {
           // Store tags that are actually nativescript core components
           this.usedNSTags.add(tagName);
         }
-
-        // View imports and properties
-        const { namespaces, properties } = this.traverseAttributes(tagName, attributes);
-
-        // Register modules to module name resolver
-        this.registerNamespaces(namespaces, newTagInfo.astInfo.body);
 
         // Create view instance
         newTagInfo.astInfo.body.push(
