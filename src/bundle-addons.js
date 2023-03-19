@@ -87,14 +87,15 @@ global.simpleUI = {
     }
     return Utils.isFunction(callback) ? callback.apply(context, args) : undefined;
   },
-  setPropertyValue(owner, propertyName, propertyValue, isEvent, notifyForChanges = true) {
-    let instance = owner;
+  setViewPropertyValue(view, propertyName, propertyValue, isEvent, notifyForChanges = true) {
+    let propertyOwner = view;
+
     if (propertyName.indexOf('.') !== -1) {
       const properties = propertyName.split('.');
 
       for (let i = 0, length = properties.length - 1; i < length; i++) {
-        if (instance != null) {
-          instance = instance[properties[i]];
+        if (propertyOwner != null) {
+          propertyOwner = propertyOwner[properties[i]];
         }
       }
       propertyName = properties[properties.length - 1];
@@ -105,84 +106,64 @@ global.simpleUI = {
       propertyValue = unsetValue;
     }
     
-    if (instance != null) {
+    if (propertyOwner != null) {
       if (isEvent) {
         const handlerPropertyName = `_${propertyName}_handler`;
 
         // Check if old handler is a function and remove it from listeners
-        if (Utils.isFunction(instance[handlerPropertyName])) {
-          instance.off(propertyName, instance[handlerPropertyName]);
-          delete instance[handlerPropertyName];
+        if (Utils.isFunction(propertyOwner[handlerPropertyName])) {
+          propertyOwner.off(propertyName, propertyOwner[handlerPropertyName]);
+          delete propertyOwner[handlerPropertyName];
         }
         // Check if new handler is a function and add it to listeners
         if (Utils.isFunction(propertyValue)) {
-          instance.on(propertyName, propertyValue);
-          instance[handlerPropertyName] = propertyValue;
+          propertyOwner.on(propertyName, propertyValue);
+          propertyOwner[handlerPropertyName] = propertyValue;
         }
-      } else if (!notifyForChanges && instance instanceof Observable) {
-        instance.set(propertyName, propertyValue);
+      } else if (!notifyForChanges && propertyOwner instanceof Observable) {
+        propertyOwner.set(propertyName, propertyValue);
       } else {
-        instance[propertyName] = propertyValue;
+        propertyOwner[propertyName] = propertyValue;
       }
     }
   },
   startViewToViewModelUpdate(view, bindingContext, callback) {
-    if (view.isUpdatingBindings) {
-      return;
-    }
-
-    view.isUpdatingBindings = true;
-
-    try {
-      callback(bindingContext);
-    } finally {
-      view.isUpdatingBindings = false;
-    }
+    callback(bindingContext);
   },
   startViewModelToViewUpdate(view, bindingContext, callback) {
-    if (view.isUpdatingBindings) {
-      return;
-    }
-
-    view.isUpdatingBindings = true;
-
     const bindingResources = Application.getResources();
     const addedBindingContextProperties = [];
     let source;
 
-    try {
-      // Ensure source is an object
-      if (bindingContext == null) {
-        source = {};
+    // Ensure source is an object
+    if (bindingContext == null) {
+      source = {};
+    } else {
+      const type = typeof bindingContext;
+      if (type === 'number') {
+        source = new Number(bindingContext);
+      } else if (type === 'boolean') {
+        source = new Boolean(bindingContext);
+      } else if (type === 'string') {
+        source = new String(bindingContext);
       } else {
-        const type = typeof bindingContext;
-        if (type === 'number') {
-          source = new Number(bindingContext);
-        } else if (type === 'boolean') {
-          source = new Boolean(bindingContext);
-        } else if (type === 'string') {
-          source = new String(bindingContext);
-        } else {
-          source = bindingContext;
-        }
+        source = bindingContext;
       }
+    }
 
-      // Addition of application resources
-      for (let propertyName in bindingResources) {
-        if (!(propertyName in source)) {
-          source[propertyName] = bindingResources[propertyName];
-          addedBindingContextProperties.push(propertyName);
-        }
+    // Addition of application resources
+    for (let propertyName in bindingResources) {
+      if (!(propertyName in source)) {
+        source[propertyName] = bindingResources[propertyName];
+        addedBindingContextProperties.push(propertyName);
       }
+    }
 
-      callback(source);
+    callback(source);
 
-      // Finally, perform a cleanup for view model
-      for (let propertyName of addedBindingContextProperties) {
-        delete source[propertyName];
-      }
-    } finally {
-      view.isUpdatingBindings = false;
+    // Finally, perform a cleanup for view model
+    for (let propertyName of addedBindingContextProperties) {
+      delete source[propertyName];
     }
   }
 };
