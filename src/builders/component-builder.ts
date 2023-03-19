@@ -712,11 +712,11 @@ export class ComponentBuilder {
           bindingOptionData.push(bindingOptions);
         }
       } else {
-        astBody.push(this.getPropertySetterAst(propertyDetails.name, (propertyDetails.isEventListener ? t.memberExpression(
+        astBody.push(this.getViewPropertySetterAst(propertyDetails.name, (propertyDetails.isEventListener ? t.memberExpression(
           t.identifier('moduleExports'),
           t.stringLiteral(propertyDetails.value),
           true
-        ) : t.stringLiteral(propertyDetails.value)), t.identifier(ELEMENT_PREFIX + this.treeIndex), propertyDetails.isEventListener, true));
+        ) : t.stringLiteral(propertyDetails.value)), ELEMENT_PREFIX + this.treeIndex, propertyDetails.isEventListener, true));
       }
     }
 
@@ -800,7 +800,7 @@ export class ComponentBuilder {
     };
   }
 
-  private getPropertySetterAst(propertyName: string, valueExpression: t.Expression, identifier: t.Identifier, isEventListener: boolean, notifyForChanges: boolean): t.ExpressionStatement {
+  private getViewPropertySetterAst(propertyName: string, valueExpression: t.Expression, viewReferenceName: string, isEventListener: boolean, notifyForChanges: boolean): t.ExpressionStatement {
     return t.expressionStatement(
       t.callExpression(
         t.memberExpression(
@@ -808,9 +808,9 @@ export class ComponentBuilder {
             t.identifier('global'),
             t.identifier(GLOBAL_UI_REF)
           ),
-          t.identifier('setPropertyValue')
+          t.identifier('setViewPropertyValue')
         ), [
-          identifier,
+          t.identifier(viewReferenceName),
           t.stringLiteral(propertyName),
           valueExpression,
           t.booleanLiteral(isEventListener),
@@ -1001,7 +1001,7 @@ export class ComponentBuilder {
     ];
   }
 
-  private generateBindingSourceAstCallback(propertyName: string, parentKeyAstExpressions: Array<t.Expression>, expressionStatements: t.ExpressionStatement[]): t.ObjectProperty {
+  private generateBindingSourceAstCallback(propertyName: string, parentKeyAstExpressions: Array<t.Expression>, propertySetArgs: t.ObjectExpression[]): t.ObjectProperty {
     return t.objectProperty(
       t.stringLiteral(propertyName),
       t.functionExpression(
@@ -1053,7 +1053,71 @@ export class ComponentBuilder {
               )
             ]
           ),
-          ...expressionStatements
+          t.variableDeclaration('let', [
+            t.variableDeclarator(
+              t.identifier('listOfArgs'),
+              t.arrayExpression(propertySetArgs)
+            )
+          ]),
+          t.forOfStatement(t.variableDeclaration('let', [
+            t.variableDeclarator(
+              t.objectPattern([
+                t.objectProperty(
+                  t.identifier('propertyName'),
+                  t.identifier('propertyName'),
+                  false,
+                  true
+                ),
+                t.objectProperty(
+                  t.identifier('propertyValueCallback'),
+                  t.identifier('propertyValueCallback'),
+                  false,
+                  true
+                ),
+                t.objectProperty(
+                  t.identifier('isEventListener'),
+                  t.identifier('isEventListener'),
+                  false,
+                  true
+                )
+              ])
+            )
+          ]),
+          t.identifier('listOfArgs'),
+          t.blockStatement([
+            t.ifStatement(
+              t.binaryExpression(
+                '!==',
+                t.memberExpression(
+                  t.identifier('view'),
+                  t.identifier('bindingPropertyToUpdate')
+                ),
+                t.identifier('propertyName')
+              ),
+              t.blockStatement([
+                t.expressionStatement(
+                  t.callExpression(
+                    t.memberExpression(
+                      t.memberExpression(
+                        t.identifier('global'),
+                        t.identifier(GLOBAL_UI_REF)
+                      ),
+                      t.identifier('setViewPropertyValue')
+                    ), [
+                      t.identifier('view'),
+                      t.identifier('propertyName'),
+                      t.callExpression(
+                        t.identifier('propertyValueCallback'),
+                        []
+                      ),
+                      t.identifier('isEventListener'),
+                      t.booleanLiteral(false)
+                    ]
+                  )
+                )
+              ])
+            )
+          ]))
         ])
       )
     );
@@ -1066,7 +1130,7 @@ export class ComponentBuilder {
     const bindingTargetPropertyAstListenerArgs: Array<t.Expression[]> = [];
     const bindingTargetAstSettersForContextChange: Array<t.ExpressionStatement> = [];
     const bindingTargetAstUnsetsForContextChange: Array<t.ExpressionStatement> = [];
-    const bindingTargetAstSettersPerPropertyMap: Map<string, t.ExpressionStatement[]> = new Map();
+    const bindingTargetAstSettersPerPropertyMap: Map<string, t.ObjectExpression[]> = new Map();
     const totalParentKeyAstExpressions: Array<t.Expression> = [];
 
     // Generate functions for listening to binding property changes
@@ -1081,17 +1145,34 @@ export class ComponentBuilder {
       }
 
       // These statements serve for setting and unsetting expression values to target properties inside binding context change callback
-      bindingTargetAstSettersForContextChange.push(this.getPropertySetterAst(viewPropertyDetails.name, bindingOptions.astExpression, t.identifier('view'), viewPropertyDetails.isEventListener, false));
-      bindingTargetAstUnsetsForContextChange.push(this.getPropertySetterAst(viewPropertyDetails.name, t.identifier('unsetValue'), t.identifier('view'), viewPropertyDetails.isEventListener, false));
+      bindingTargetAstSettersForContextChange.push(this.getViewPropertySetterAst(viewPropertyDetails.name, bindingOptions.astExpression, 'view', viewPropertyDetails.isEventListener, false));
+      bindingTargetAstUnsetsForContextChange.push(this.getViewPropertySetterAst(viewPropertyDetails.name, t.identifier('unsetValue'), 'view', viewPropertyDetails.isEventListener, false));
 
       // These mapped target property setters will serve for generating binding source callbacks that will be used from binding property change callback
       for (const propertyName of bindingOptions.properties) {
-        const bindingTargetPropertyAstSetter = this.getPropertySetterAst(viewPropertyDetails.name, bindingOptions.astExpression, t.identifier('view'), viewPropertyDetails.isEventListener, false);
+        const bindingTargetPropertyAstSetArgs = t.objectExpression([
+          t.objectProperty(
+            t.identifier('propertyName'),
+            t.stringLiteral(viewPropertyDetails.name)
+          ),
+          // Nest value inside an arrow function in case it's a converter that shouldn't be called
+          t.objectProperty(
+            t.identifier('propertyValueCallback'),
+            t.arrowFunctionExpression(
+              [],
+              bindingOptions.astExpression
+            )
+          ),
+          t.objectProperty(
+            t.identifier('isEventListener'),
+            t.booleanLiteral(viewPropertyDetails.isEventListener)
+          )
+        ]);
 
         if (bindingTargetAstSettersPerPropertyMap.has(propertyName)) {
-          bindingTargetAstSettersPerPropertyMap.get(propertyName).push(bindingTargetPropertyAstSetter);
+          bindingTargetAstSettersPerPropertyMap.get(propertyName).push(bindingTargetPropertyAstSetArgs);
         } else {
-          bindingTargetAstSettersPerPropertyMap.set(propertyName, [bindingTargetPropertyAstSetter]);
+          bindingTargetAstSettersPerPropertyMap.set(propertyName, [bindingTargetPropertyAstSetArgs]);
         }
       }
 
@@ -1110,8 +1191,8 @@ export class ComponentBuilder {
     }
 
     // View model -> view callback functions
-    for (const [ propertyName, expressionStatements ] of bindingTargetAstSettersPerPropertyMap) {
-      bindingSourcePropertyAstCallbacks.push(this.generateBindingSourceAstCallback(propertyName, totalParentKeyAstExpressions, expressionStatements));
+    for (const [ propertyName, propertySetArgs ] of bindingTargetAstSettersPerPropertyMap) {
+      bindingSourcePropertyAstCallbacks.push(this.generateBindingSourceAstCallback(propertyName, totalParentKeyAstExpressions, propertySetArgs));
     }
 
     const bindingSourcePropertyAstCallbackPairs = t.variableDeclaration(
@@ -1173,6 +1254,16 @@ export class ComponentBuilder {
               )
             )
           ]
+        ),
+        t.expressionStatement(
+          t.assignmentExpression(
+            '=',
+            t.memberExpression(
+              t.identifier('view'),
+              t.identifier('bindingPropertyToUpdate')
+            ),
+            t.nullLiteral()
+          )
         ),
         t.ifStatement(
           t.binaryExpression(
@@ -1507,6 +1598,16 @@ export class ComponentBuilder {
                       t.nullLiteral()
                     ),
                     t.blockStatement([
+                      t.expressionStatement(
+                        t.assignmentExpression(
+                          '=',
+                          t.memberExpression(
+                            t.identifier('view'),
+                            t.identifier('bindingPropertyToUpdate')
+                          ),
+                          t.stringLiteral(bindingOptions.viewPropertyDetails.name)
+                        )
+                      ),
                       t.ifStatement(
                         t.binaryExpression(
                           'instanceof',
@@ -1540,7 +1641,17 @@ export class ComponentBuilder {
                             )
                           )
                         ])
-                      )
+                      ),
+                      t.expressionStatement(
+                        t.assignmentExpression(
+                          '=',
+                          t.memberExpression(
+                            t.identifier('view'),
+                            t.identifier('bindingPropertyToUpdate')
+                          ),
+                          t.nullLiteral()
+                        )
+                      ),
                     ])
                   )
                 ])
