@@ -569,24 +569,6 @@ export class ComponentBuilder {
             true
           )).concat([
             t.objectProperty(
-              t.identifier('addWeakEventListener'),
-              t.identifier('addWeakEventListener'),
-              false,
-              true
-            ),
-            t.objectProperty(
-              t.identifier('Observable'),
-              t.identifier('Observable'),
-              false,
-              true
-            ),
-            t.objectProperty(
-              t.identifier('removeWeakEventListener'),
-              t.identifier('removeWeakEventListener'),
-              false,
-              true
-            ),
-            t.objectProperty(
               t.identifier('unsetValue'),
               t.identifier('unsetValue'),
               false,
@@ -1294,10 +1276,21 @@ export class ComponentBuilder {
               t.logicalExpression(
                 '&&',
                 t.identifier('isBindingContextChanged'),
-                t.binaryExpression(
-                  'instanceof',
-                  t.identifier('oldBindingContext'),
-                  t.identifier('Observable')
+                t.callExpression(
+                  t.memberExpression(
+                    t.memberExpression(
+                      t.memberExpression(
+                        t.identifier('global'),
+                        t.identifier(GLOBAL_UI_REF)
+                      ),
+                      t.identifier('dataBindingHandler')
+                    ),
+                    t.identifier('isCompatible')
+                  ),
+                  [
+                    t.identifier('oldBindingContext'),
+                    t.identifier('view')
+                  ]
                 )
               ),
               t.blockStatement([
@@ -1312,11 +1305,27 @@ export class ComponentBuilder {
                 ),
                 t.expressionStatement(
                   t.callExpression(
-                    t.identifier('removeWeakEventListener'), [
-                      t.identifier('oldBindingContext'),
+                    t.memberExpression(
                       t.memberExpression(
-                        t.identifier('Observable'),
-                        t.identifier('propertyChangeEvent')
+                        t.memberExpression(
+                          t.identifier('global'),
+                          t.identifier(GLOBAL_UI_REF)
+                        ),
+                        t.identifier('dataBindingHandler')
+                      ),
+                      t.identifier('removeChangeListener')
+                    ),
+                    [
+                      t.identifier('oldBindingContext'),
+                      t.identifier('view'),
+                      t.callExpression(
+                        t.memberExpression(
+                          t.identifier('Object'),
+                          t.identifier('keys')
+                        ),
+                        [
+                          t.identifier(bindingSourceCallbackPairName)
+                        ]
                       ),
                       t.memberExpression(
                         t.memberExpression(
@@ -1324,8 +1333,7 @@ export class ComponentBuilder {
                           t.identifier(GLOBAL_UI_REF)
                         ),
                         t.identifier('onBindingSourcePropertyChange')
-                      ),
-                      t.identifier('view')
+                      )
                     ]
                   )
                 )
@@ -1432,10 +1440,21 @@ export class ComponentBuilder {
               t.logicalExpression(
                 '&&',
                 t.identifier('isBindingContextChanged'),
-                t.binaryExpression(
-                  'instanceof',
-                  t.identifier('bindingContext'),
-                  t.identifier('Observable')
+                t.callExpression(
+                  t.memberExpression(
+                    t.memberExpression(
+                      t.memberExpression(
+                        t.identifier('global'),
+                        t.identifier(GLOBAL_UI_REF)
+                      ),
+                      t.identifier('dataBindingHandler')
+                    ),
+                    t.identifier('isCompatible')
+                  ),
+                  [
+                    t.identifier('bindingContext'),
+                    t.identifier('view')
+                  ]
                 )
               ),
               t.blockStatement([
@@ -1451,11 +1470,27 @@ export class ComponentBuilder {
                 ),
                 t.expressionStatement(
                   t.callExpression(
-                    t.identifier('addWeakEventListener'), [
-                      t.identifier('bindingContext'),
+                    t.memberExpression(
                       t.memberExpression(
-                        t.identifier('Observable'),
-                        t.identifier('propertyChangeEvent')
+                        t.memberExpression(
+                          t.identifier('global'),
+                          t.identifier(GLOBAL_UI_REF)
+                        ),
+                        t.identifier('dataBindingHandler')
+                      ),
+                      t.identifier('addChangeListener')
+                    ),
+                    [
+                      t.identifier('bindingContext'),
+                      t.identifier('view'),
+                      t.callExpression(
+                        t.memberExpression(
+                          t.identifier('Object'),
+                          t.identifier('keys')
+                        ),
+                        [
+                          t.identifier(bindingSourceCallbackPairName)
+                        ]
                       ),
                       t.memberExpression(
                         t.memberExpression(
@@ -1463,8 +1498,7 @@ export class ComponentBuilder {
                           t.identifier(GLOBAL_UI_REF)
                         ),
                         t.identifier('onBindingSourcePropertyChange')
-                      ),
-                      t.identifier('view')
+                      )
                     ]
                   )
                 )
@@ -1609,19 +1643,38 @@ export class ComponentBuilder {
                         )
                       ),
                       t.ifStatement(
-                        t.binaryExpression(
-                          'instanceof',
-                          t.identifier('propertyOwner'),
-                          t.identifier('Observable')
+                        t.callExpression(
+                          t.memberExpression(
+                            t.memberExpression(
+                              t.memberExpression(
+                                t.identifier('global'),
+                                t.identifier(GLOBAL_UI_REF)
+                              ),
+                              t.identifier('dataBindingHandler')
+                            ),
+                            t.identifier('isCompatible')
+                          ),
+                          [
+                            t.identifier('propertyOwner'),
+                            t.identifier('view')
+                          ]
                         ),
                         t.blockStatement([
                           t.expressionStatement(
                             t.callExpression(
                               t.memberExpression(
-                                t.identifier('propertyOwner'),
-                                t.identifier('set')
+                                t.memberExpression(
+                                  t.memberExpression(
+                                    t.identifier('global'),
+                                    t.identifier(GLOBAL_UI_REF)
+                                  ),
+                                  t.identifier('dataBindingHandler')
+                                ),
+                                t.identifier('setValue')
                               ),
                               [
+                                t.identifier('propertyOwner'),
+                                t.identifier('view'),
                                 memberPropertyAst,
                                 valueExpression
                               ]
