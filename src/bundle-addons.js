@@ -1,7 +1,25 @@
-let { Application, Observable, Utils, unsetValue, ViewBase } = require('@nativescript/core');
+let { Application, addWeakEventListener, Observable, removeWeakEventListener, Utils, unsetValue, ViewBase } = require('@nativescript/core');
 let { resolveModuleName } = require('@nativescript/core/module-name-resolver');
 
+let _dataBindingHandler = {
+  addChangeListener(source, target, propertyNames, changeCallback) {
+    addWeakEventListener(source, Observable.propertyChangeEvent, changeCallback, target);
+  },
+  removeChangeListener(source, target, propertyNames, changeCallback) {
+    removeWeakEventListener(source, Observable.propertyChangeEvent, changeCallback, target);
+  },
+  isCompatible(source, target) {
+    return source instanceof Observable;
+  },
+  setValue(source, target, propertyName, propertyValue) {
+    source.set(propertyName, propertyValue);
+  }
+};
+
 global.simpleUI = {
+  get dataBindingHandler() {
+    return _dataBindingHandler;
+  },
   addViewsFromBuilder(parent, children, propertyName = null) {
     if (parent._addChildFromBuilder) {
       for (const child of children) {
@@ -86,6 +104,9 @@ global.simpleUI = {
       callback = converter;
     }
     return Utils.isFunction(callback) ? callback.apply(context, args) : undefined;
+  },
+  setDataBindingHandler(handler) {
+    _dataBindingHandler = handler;
   },
   setViewPropertyValue(view, propertyName, propertyValue, isEvent, notifyForChanges = true) {
     let propertyOwner = view;
