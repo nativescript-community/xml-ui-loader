@@ -6,6 +6,7 @@ export type AttributeValueFormatter = (value: string, attributeName?: string, ta
 export interface LoaderOptions {
   appPath: string;
   platform: string;
+  useCoreDataBinding?: boolean;
   preprocess?: {
     attributeValueFormatter?: AttributeValueFormatter;
     transformAst?: (ast: Program, generateFunc) => string;
@@ -15,9 +16,18 @@ export interface LoaderOptions {
 export const GLOBAL_UI_REF = 'simpleUI';
 
 export function chainLoaderConfiguration(config, options: LoaderOptions) {
-  const addonsPath = resolve(__dirname, '../bundle-addons');
-  config.entry('bundle').add(addonsPath);
+  const defaults: LoaderOptions = {
+    appPath: '/',
+    platform: null,
+    useCoreDataBinding: false
+  };
 
+  // Apply user-defined options on top of defaults
+  options = Object.assign(defaults, options);
+
+  const addonsPath = resolve(__dirname, '../bundle-addons');
+
+  config.entry('bundle').prepend(addonsPath);
   config.module.rules.delete('xml');
 
   // Update HMR supported extensions
@@ -33,7 +43,7 @@ export function chainLoaderConfiguration(config, options: LoaderOptions) {
   config.plugin('DefinePlugin').tap(args => {
     Object.assign(args[0], {
       '__UI_USE_XML_PARSER__': false,
-      '__UI_USE_EXTERNAL_RENDERER__': true
+      '__UI_USE_EXTERNAL_RENDERER__': !options.useCoreDataBinding
     });
     return args;
   });
