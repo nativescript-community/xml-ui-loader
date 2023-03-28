@@ -1,7 +1,7 @@
 import * as t from '@babel/types';
 import { pascalCase } from 'change-case';
 import { join, parse } from 'path';
-import { BindingBuilder, BindingOptions, BINDING_CONTEXT_PROPERTY_NAME, PARENTS_REFERENCE_NAME, PARENT_REFERENCE_NAME, VALUE_REFERENCE_NAME, VIEW_MODEL_REFERENCE_NAME } from './binding-builder';
+import { BindingBuilder, BindingOptions, BINDING_CONTEXT_PROPERTY_NAME, BINDING_PROPERTY_TO_UPDATE_NAME, PARENTS_REFERENCE_NAME, PARENT_REFERENCE_NAME, VALUE_REFERENCE_NAME, VIEW_MODEL_REFERENCE_NAME } from './binding-builder';
 import { AttributeValueFormatter, GLOBAL_UI_REF } from '../helpers';
 import { AttributeItem } from './base-builder';
 
@@ -1072,7 +1072,7 @@ export class ComponentBuilder {
                 '!==',
                 t.memberExpression(
                   t.identifier('view'),
-                  t.identifier('bindingPropertyToUpdate')
+                  t.identifier(BINDING_PROPERTY_TO_UPDATE_NAME)
                 ),
                 t.identifier('propertyName')
               ),
@@ -1242,7 +1242,7 @@ export class ComponentBuilder {
             '=',
             t.memberExpression(
               t.identifier('view'),
-              t.identifier('bindingPropertyToUpdate')
+              t.identifier(BINDING_PROPERTY_TO_UPDATE_NAME)
             ),
             t.nullLiteral()
           )
@@ -1637,7 +1637,7 @@ export class ComponentBuilder {
                           '=',
                           t.memberExpression(
                             t.identifier('view'),
-                            t.identifier('bindingPropertyToUpdate')
+                            t.identifier(BINDING_PROPERTY_TO_UPDATE_NAME)
                           ),
                           t.stringLiteral(bindingOptions.viewPropertyDetails.name)
                         )
@@ -1700,7 +1700,7 @@ export class ComponentBuilder {
                           '=',
                           t.memberExpression(
                             t.identifier('view'),
-                            t.identifier('bindingPropertyToUpdate')
+                            t.identifier(BINDING_PROPERTY_TO_UPDATE_NAME)
                           ),
                           t.nullLiteral()
                         )
