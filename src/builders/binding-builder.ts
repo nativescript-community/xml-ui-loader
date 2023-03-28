@@ -26,6 +26,12 @@ const BINDING_AST_VALIDATORS = [
 ];
 
 export const BINDING_CONTEXT_PROPERTY_NAME = 'bindingContext';
+
+/**
+ * This property is used as a binding lock from view to view-model as changes on view-model values will trigger pointless notify calls.
+ */
+export const BINDING_PROPERTY_TO_UPDATE_NAME = 'bindingPropertyToUpdate';
+
 export const VIEW_MODEL_REFERENCE_NAME = 'viewModel';
 
 export const VALUE_REFERENCE_NAME = '$value';
