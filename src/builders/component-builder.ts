@@ -58,6 +58,7 @@ export interface ComponentBuilderOptions {
   moduleRelativePath: string;
   platform: string;
   attributeValueFormatter: AttributeValueFormatter;
+  useDataBinding: boolean;
 }
 
 export class ComponentBuilder {
@@ -92,9 +93,12 @@ export class ComponentBuilder {
     this.options = options;
     this.componentName = componentName;
     this.moduleDirPath = dir;
-    this.bindingBuilder = new BindingBuilder();
     
     options.moduleRelativePath = options.moduleRelativePath.substring(0, options.moduleRelativePath.length - ext.length);
+  }
+
+  public setBindingBuilder(bindingBuilder: BindingBuilder): void {
+    this.bindingBuilder = bindingBuilder;
   }
 
   public handleOpenTag(tagName: string, attributes): void {
@@ -688,7 +692,7 @@ export class ComponentBuilder {
 
     for (const propertyDetails of properties) {
       // If property value is enclosed in curly brackets, then it's a binding expression
-      if (this.bindingBuilder.isBindingValue(propertyDetails.value)) {
+      if (this.bindingBuilder != null && this.bindingBuilder.isBindingValue(propertyDetails.value)) {
         const bindingOptions: BindingOptions = this.bindingBuilder.convertValueToBindingOptions(propertyDetails);
         if (bindingOptions != null) {
           bindingOptionData.push(bindingOptions);

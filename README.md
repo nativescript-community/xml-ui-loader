@@ -19,6 +19,7 @@ It's meant to improve performance and allow developers to use XML files as modul
   - [Import as a module](#import-as-a-module)
   - [Import as plain XML](#import-as-plain-xml)
 - [Features](#features)
+  - [Data binding](#data-binding)
   - [Custom components](#custom-components)
   - [Script and Style](#script-and-style)
   - [Slots](#slots)
@@ -68,11 +69,12 @@ There are also few preprocessing options that are useful for applying output cus
 chainLoaderConfiguration(config, {
   appPath: getEntryDirPath(),
   platform: getPlatformName(),
+  useDataBinding: false, // Set this to false if you don't want to use data binding system
   preprocess: {
     // Format attribute value
     attributeValueFormatter: (value, attributeName, tagName, attributes) => value.toUpperCase(),
     // Manage AST result
-    transformAst: (ast, generateFunc) => generateFunc(ast).code
+    transformAst: (ast, generateFunc) => generateFunc(ast).code,
   }
 });
 
@@ -103,6 +105,32 @@ This will make sure import will resolve to plain XML string content.
 
 
 ## Features
+
+### Data binding
+
+Data bindings are supported using MVVM pattern by setting view `bindingContext` property on JS side.
+```xml
+<!-- Property binding -->
+<Page>
+  <GridLayout>
+    <Label text="{{ myTextProp }}"/>
+  </GridLayout>
+</Page>
+
+<!-- Event binding -->
+<Page>
+  <GridLayout>
+    <Label text="Hello world!" on:tap="{{ onHelloWorldTap }}"/>
+  </GridLayout>
+</Page>
+
+<!-- Property converters -->
+<Page>
+  <GridLayout>
+    <Label text="{{ myTextProp | toUpperCaseConverter }}"/>
+  </GridLayout>
+</Page>
+```
 
 ### Custom components
 

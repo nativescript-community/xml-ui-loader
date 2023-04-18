@@ -21,7 +21,8 @@ async function loadContent(loader, content): Promise<string> {
   const { output, pathsToResolve } = convertDocumentToAST(content, {
     moduleRelativePath,
     platform: options.platform,
-    attributeValueFormatter: options.preprocess?.attributeValueFormatter
+    attributeValueFormatter: options.preprocess?.attributeValueFormatter,
+    useDataBinding: options.useDataBinding
   });
 
   if (output == null) {

@@ -1,6 +1,7 @@
 import * as t from '@babel/types';
 import { Parser } from 'htmlparser2';
 import { ComponentBuilder, ComponentBuilderOptions } from './builders/component-builder';
+import { BindingBuilder } from './builders/binding-builder';
 
 function getAstForRawXML(content: string): t.Program {
   return t.program([
@@ -21,6 +22,10 @@ function getAstForRawXML(content: string): t.Program {
 
 export function convertDocumentToAST(content: string, builderOpts: ComponentBuilderOptions): { output: t.Program; pathsToResolve: Array<string> } {
   const componentBuilder = new ComponentBuilder(builderOpts);
+  if (builderOpts.useDataBinding) {
+    componentBuilder.setBindingBuilder(new BindingBuilder());
+  }
+  
   let compilationResult;
   let needsCompilation = true;
 
