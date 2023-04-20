@@ -100,10 +100,13 @@ chainLoaderConfiguration(config, {
 
 ### Import as a module
 
-One can easily import an XML component just like any regular JS module.  
+One can easily import an XML component just like any regular JS module using either a default or a named import.  
 Example:
 ```javascript
-import MyActionBar from "./components/my-action-bar.xml";
+// Default import
+import MyActionBar123 from "./components/my-action-bar.xml";
+// Named import
+import { MyActionBar } from "./components/my-action-bar.xml";
 ```
 
 ### Import as plain XML
@@ -149,20 +152,15 @@ Data bindings are supported using MVVM pattern by setting view `bindingContext` 
 
 ### Custom components
 
-Regarding custom components, the method to import one inside XML has changed so that it's identical to importing modules in JavaScript.
+Regarding custom components, they can be used in markup by declaring namespaces.  
+A namespace works just like a named import.
 
-Correct approaches, supposing caller directory path is `app/views/home` and components directory path is `app/components`
+A correct approach, supposing caller directory path is `app/views/home` and components directory path is `app/components`
 ```xml
-<!-- Works -->
 <Page xmlns:myxml="../../components/my-xml-component.xml" xmlns:myjs="../../components/my-js-component">
-</Page>
-
-<!-- Works -->
-<Page xmlns:myxml="~/components/my-xml-component.xml" xmlns:myjs="~/components/my-js-component">
-</Page>
-
-<!-- Does not work! -->
-<Page xmlns:myxml="components/my-xml-component.xml" xmlns:myjs="components/my-js-component">
+  <myjs:MyJsComponent/>
+  <!-- OR -->
+  <myjs:default/><!-- in case module has a default export -->
 </Page>
 ```
 
