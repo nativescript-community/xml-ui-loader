@@ -62,14 +62,7 @@ global.simpleUI = {
     }
 
     const resolvedModuleName = resolveModuleName(uri, ext);
-    if (resolvedModuleName) {
-      const componentModule = global.loadModule(resolvedModuleName, true);
-      if (componentModule.default) {
-        return componentModule.default.name != null ? {[componentModule.default.name]: componentModule.default} : componentModule.default;
-      }
-      return componentModule;
-    }
-    return null;
+    return resolvedModuleName ? global.loadModule(resolvedModuleName, true) : null;
   },
   notifyViewBindingContextChange(args) {
     const view = args.object;

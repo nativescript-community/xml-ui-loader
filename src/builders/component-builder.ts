@@ -46,6 +46,7 @@ interface TagInfo {
   astInfo: TagAstInfo;
   slotChildIndices: Array<number>;
   slotMap?: Map<string, Array<number>>;
+  namespaces?: Set<string>;
   isCustomComponent: boolean;
   isParentForSlots: boolean;
   /**
@@ -64,6 +65,7 @@ export interface ComponentBuilderOptions {
 export class ComponentBuilder {
   private openTags = new Array<TagInfo>();
   private pathsToResolve = new Array<string>();
+  private activeNamespaces = new Set<string>();
   private usedNSTags = new Set<string>();
 
   private options: ComponentBuilderOptions;
@@ -342,23 +344,27 @@ export class ComponentBuilder {
         const { namespaces, properties } = this.traverseAttributes(tagName, attributes);
 
         // Register modules to module name resolver (before setting indexBeforeNewViewInstance)
-        this.registerNamespaces(namespaces, newTagInfo.astInfo.body);
+        newTagInfo.namespaces = this.registerNamespaces(namespaces, newTagInfo.astInfo.body);
 
         if (prefix != null) {
-          newTagInfo.isCustomComponent = true;
+          if (this.activeNamespaces.has(prefix)) {
+            newTagInfo.isCustomComponent = true;
 
-          newTagInfo.astInfo.body.push(
-            t.variableDeclaration(
-              'let',
-              [
-                t.variableDeclarator(
-                  t.identifier(`slotViews${this.treeIndex}`),
-                  t.objectExpression([])
-                )
-              ]
-            )
-          );
-          newTagInfo.astInfo.indexBeforeNewViewInstance = newTagInfo.astInfo.body.length;
+            newTagInfo.astInfo.body.push(
+              t.variableDeclaration(
+                'let',
+                [
+                  t.variableDeclarator(
+                    t.identifier(`slotViews${this.treeIndex}`),
+                    t.objectExpression([])
+                  )
+                ]
+              )
+            );
+            newTagInfo.astInfo.indexBeforeNewViewInstance = newTagInfo.astInfo.body.length;
+          } else {
+            throw new Error(`Namespace prefix '${prefix}' on '${elementName}' is not defined`);
+          }
         } else {
           // Store tags that are actually nativescript core components
           this.usedNSTags.add(tagName);
@@ -498,6 +504,13 @@ export class ComponentBuilder {
               );
             }
           }
+
+          // Invalidate namespaces of closing element
+          if (openTagInfo.namespaces != null) {
+            for (const namespace of openTagInfo.namespaces) {
+              this.activeNamespaces.delete(namespace);
+            }
+          }
         }
 
         // Remove tag from the openTags collection
@@ -528,6 +541,7 @@ export class ComponentBuilder {
 
   private assembleAst(): void {
     const astBody = [];
+    const className: string = 'NSComponent';
 
     // Core modules barrel
     const usedTagNames = Array.from(this.usedNSTags).sort();
@@ -611,7 +625,7 @@ export class ComponentBuilder {
       // Class
       t.exportDefaultDeclaration(
         t.classDeclaration(
-          t.identifier(this.componentName),
+          t.identifier(className),
           null,
           t.classBody([
             t.classMethod('constructor',
@@ -630,11 +644,20 @@ export class ComponentBuilder {
         t.assignmentExpression(
           '=',
           t.memberExpression(
-            t.identifier(this.componentName),
+            t.identifier(className),
             t.identifier('isXMLComponent')
           ),
           t.booleanLiteral(true)
         )
+      ),
+      t.exportNamedDeclaration(
+        null,
+        [
+          t.exportSpecifier(
+            t.identifier(className),
+            t.identifier(this.componentName)
+          )
+        ]
       )
     );
     
@@ -1720,10 +1743,23 @@ export class ComponentBuilder {
     );
   }
 
-  private registerNamespaces(namespaces: Array<AttributeItem>, astBody: Array<t.Expression | t.Statement>): void {
+  private registerNamespaces(namespaces: Array<AttributeItem>, astBody: Array<t.Expression | t.Statement>): Set<string> {
+    if (!namespaces.length) {
+      return null;
+    }
+    
+    const names = new Set<string>();
+
     for (const { name, value } of namespaces) {
+      if (this.activeNamespaces.has(name)) {
+        throw new Error(`Namespace prefix '${name}' is already defined`);
+      }
+
       const resolvedPath = this.getResolvedPath(value);
       const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
+
+      names.add(name);
+      this.activeNamespaces.add(name);
 
       /**
        * By default, virtual-entry-javascript registers all application js, xml, and css files as modules.
@@ -1782,6 +1818,8 @@ export class ComponentBuilder {
         )
       );
     }
+
+    return names;
   }
 
   private getLocalAndPrefixByName(name: string): string[] {
