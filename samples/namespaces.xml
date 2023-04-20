@@ -1,0 +1,5 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" xmlns:lv="./list-view.xml">
+  <StackLayout>
+    <lv:ListView/>
+  </StackLayout>
+</Page>

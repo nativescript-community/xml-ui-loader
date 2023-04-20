@@ -15,6 +15,8 @@ It's meant to improve performance and allow developers to use XML files as modul
 
 - [Install](#install)
 - [Setup](#setup)
+  - [TypeScript](#typescript)
+  - [Webpack](#webpack)
 - [Usage](#usage)
   - [Import as a module](#import-as-a-module)
   - [Import as plain XML](#import-as-plain-xml)
@@ -39,7 +41,20 @@ npm install @nativescript-community/xml-ui-loader --save-dev
 
 ## Setup
 
-This loader requires a new webpack configuration:
+### TypeScript
+
+Add XML module declaration to your types:
+
+`references.d.ts`
+```ts
+/// <reference path="./node_modules/@nativescript/types/index.d.ts" />
+
+declare module '*.xml';
+```
+
+### Webpack
+
+This loader requires a new configuration:
 
 `webpack.config.js`
 ```javascript
