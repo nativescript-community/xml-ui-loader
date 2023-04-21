@@ -126,7 +126,7 @@ This will make sure import will resolve to plain XML string content.
 
 ### Data binding
 
-Data bindings are supported using MVVM pattern by setting view `bindingContext` property on JS side.
+Data bindings are supported using MVVM pattern by setting view's `bindingContext` property on JS side.
 ```xml
 <!-- Property binding -->
 <Page>
@@ -149,6 +149,8 @@ Data bindings are supported using MVVM pattern by setting view `bindingContext` 
   </GridLayout>
 </Page>
 ```
+
+Note: Two-way binding is enabled by default. However, events, sub-properties and expressions that make use of `$value`, `$parent`, or `$parents` callers do not support it.
 
 ### Custom components
 
