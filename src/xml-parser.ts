@@ -1,7 +1,9 @@
 import * as t from '@babel/types';
 import { Parser } from 'htmlparser2';
-import { ComponentBuilder, ComponentBuilderOptions } from './builders/component-builder';
+import { ComponentBuilder } from './builders/component-builder';
 import { BindingBuilder } from './builders/binding-builder';
+import { AttributeValueFormatter } from './builders/base-builder';
+import { LocationTracker, setCurrentLocationTracker } from './location-tracker';
 
 function getAstForRawXML(content: string): t.Program {
   return t.program([
@@ -20,14 +22,17 @@ function getAstForRawXML(content: string): t.Program {
   ], [], 'module');
 }
 
-export function convertDocumentToAST(content: string, builderOpts: ComponentBuilderOptions): { output: t.Program; pathsToResolve: Array<string> } {
-  const componentBuilder = new ComponentBuilder(builderOpts);
-  if (builderOpts.useDataBinding) {
-    componentBuilder.setBindingBuilder(new BindingBuilder());
-  }
-  
+export function convertDocumentToAST(content: string, moduleRelativePath: string, platform: string, useDataBinding?: boolean, attributeValueFormatter?: AttributeValueFormatter): { output: t.Program; pathsToResolve: Array<string> } {
+  const componentBuilder = new ComponentBuilder(moduleRelativePath, platform);
   let compilationResult;
   let needsCompilation = true;
+
+  if (useDataBinding) {
+    componentBuilder.setBindingBuilder(new BindingBuilder());
+  }
+  if (attributeValueFormatter) {
+    componentBuilder.setAttributeValueFormatter(attributeValueFormatter);
+  }
 
   const xmlParser = new Parser({
     onopentag(tagName, attributes) {
@@ -48,6 +53,10 @@ export function convertDocumentToAST(content: string, builderOpts: ComponentBuil
   }, {
     xmlMode: true
   });
+
+  const tracker = new LocationTracker(content, xmlParser);
+  setCurrentLocationTracker(tracker);
+
   xmlParser.write(content);
   xmlParser.end();
 

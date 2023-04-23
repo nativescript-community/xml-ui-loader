@@ -1,11 +1,11 @@
 import { Program } from '@babel/types';
 import { resolve } from 'path';
-
-export type AttributeValueFormatter = (value: string, attributeName?: string, tagName?: string, attributes?) => string;
+import { AttributeValueFormatter } from '../builders/base-builder';
 
 export interface LoaderOptions {
   appPath: string;
   platform: string;
+  compileWithMarkupErrors?: boolean;
   useDataBinding?: boolean;
   preprocess?: {
     attributeValueFormatter?: AttributeValueFormatter;

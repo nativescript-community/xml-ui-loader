@@ -1,5 +1,3 @@
-
-
 export interface AttributeItem {
   prefix?: string;
   name: string;
@@ -7,3 +5,5 @@ export interface AttributeItem {
   isEventListener: boolean;
   isSubProperty: boolean;
 }
+
+export type AttributeValueFormatter = (value: string, attributeName?: string, tagName?: string, attributes?) => string;

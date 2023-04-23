@@ -1,6 +1,6 @@
 {
   "name": "@nativescript-community/xml-ui-loader",
-  "version": "3.2.0",
+  "version": "3.3.0-alpha.0",
   "description": "A webpack loader that works as an ahead-of-time (AOT) compiler which turns XML content into JavaScript during the build phase.",
   "main": "dist/index.js",
   "files": [
@@ -31,6 +31,7 @@
   },
   "homepage": "https://github.com/nativescript-community/xml-ui-loader#readme",
   "dependencies": {
+    "@babel/code-frame": "^7.21.4",
     "@babel/generator": "^7.20.7",
     "@babel/parser": "^7.20.7",
     "@babel/traverse": "^7.20.10",
