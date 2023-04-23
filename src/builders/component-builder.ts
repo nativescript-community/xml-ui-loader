@@ -1,9 +1,11 @@
 import * as t from '@babel/types';
 import { pascalCase } from 'change-case';
 import { join, parse } from 'path';
+import { AttributeItem, AttributeValueFormatter } from './base-builder';
 import { BindingBuilder, BindingOptions, BINDING_CONTEXT_PROPERTY_NAME, BINDING_PROPERTY_TO_UPDATE_NAME, PARENTS_REFERENCE_NAME, PARENT_REFERENCE_NAME, VALUE_REFERENCE_NAME, VIEW_MODEL_REFERENCE_NAME } from './binding-builder';
-import { AttributeValueFormatter, GLOBAL_UI_REF } from '../helpers';
-import { AttributeItem } from './base-builder';
+import { notifyError, notifyWarning } from '../compiler-abnormal-state';
+import { GLOBAL_UI_REF } from '../helpers';
+
 
 const ELEMENT_PREFIX = 'el';
 const EVENT_PREFIX = 'on';
@@ -39,7 +41,6 @@ interface TagInfo {
   index: number;
   tagName: string;
   propertyName?: string;
-  attributes: any;
   type: ElementType;
   nestedTagCount: number;
   childIndices: Array<number>;
@@ -49,17 +50,11 @@ interface TagInfo {
   namespaces?: Set<string>;
   isCustomComponent: boolean;
   isParentForSlots: boolean;
+  ignored: boolean;
   /**
    * Use this flag to check if parent tag is closing.
    */
   hasOpenChildTag: boolean;
-}
-
-export interface ComponentBuilderOptions {
-  moduleRelativePath: string;
-  platform: string;
-  attributeValueFormatter: AttributeValueFormatter;
-  useDataBinding: boolean;
 }
 
 export class ComponentBuilder {
@@ -68,9 +63,11 @@ export class ComponentBuilder {
   private activeNamespaces = new Set<string>();
   private usedNSTags = new Set<string>();
 
-  private options: ComponentBuilderOptions;
   private componentName: string;
+  private moduleRelativePath: string;
   private moduleDirPath: string;
+  private platform: string;
+  private attributeValueFormatter: AttributeValueFormatter;
   private bindingBuilder: BindingBuilder;
 
   /**
@@ -88,15 +85,18 @@ export class ComponentBuilder {
   private astConstructorBody: Array<t.Statement> = [];
   private astCustomModulesRegister: Array<t.Statement> = [];
 
-  constructor(options: ComponentBuilderOptions) {
-    const { dir, ext, name } = parse(options.moduleRelativePath);
+  constructor(moduleRelativePath: string, platform: string) {
+    const { dir, ext, name } = parse(moduleRelativePath);
     const componentName = pascalCase(name);
 
-    this.options = options;
     this.componentName = componentName;
+    this.moduleRelativePath = moduleRelativePath.substring(0, moduleRelativePath.length - ext.length);
     this.moduleDirPath = dir;
-    
-    options.moduleRelativePath = options.moduleRelativePath.substring(0, options.moduleRelativePath.length - ext.length);
+    this.platform = platform;
+  }
+
+  public setAttributeValueFormatter(callback: AttributeValueFormatter) {
+    this.attributeValueFormatter = callback;
   }
 
   public setBindingBuilder(bindingBuilder: BindingBuilder): void {
@@ -106,12 +106,13 @@ export class ComponentBuilder {
   public handleOpenTag(tagName: string, attributes): void {
     // Component root view and its children have already been parsed
     if (this.isComponentInitialized) {
-      throw new Error(`Invalid element ${tagName}. Components can only have a single root view`);
+      notifyError(`Invalid element ${tagName}. Components can only have a single root view`);
+      return;
     }
 
     // Platform tags
     if (KNOWN_PLATFORMS.includes(tagName)) {
-      if (tagName.toLowerCase() !== this.options.platform) {
+      if (tagName.toLowerCase() !== this.platform) {
         this.unsupportedPlatformTagCount++;
       }
       return;
@@ -122,23 +123,9 @@ export class ComponentBuilder {
 
     const openTagInfo: TagInfo = this.openTags[this.openTags.length - 1];
     const isViewProperty: boolean = this.isViewProperty(tagName);
-
-    // Handle view property nesting
-    if (isViewProperty && openTagInfo?.type !== ElementType.VIEW) {
-      throw new Error(`Property '${tagName}' can only be nested inside a view tag. Parent tag: ${openTagInfo?.tagName ?? 'None'}`);
-    }
-
-    if (openTagInfo != null) {
-      this.checkOpenTagNestingConditions(openTagInfo, tagName, attributes);
-
-      openTagInfo.hasOpenChildTag = true;
-      openTagInfo.nestedTagCount++;
-    }
-
-    let newTagInfo: TagInfo = {
+    const newTagInfo: TagInfo = {
       index: -1,
       tagName,
-      attributes,
       type: null,
       nestedTagCount: 0,
       childIndices: [],
@@ -147,10 +134,27 @@ export class ComponentBuilder {
         body: null,
         indexBeforeNewViewInstance: -1
       },
+      ignored: false,
       isCustomComponent: false,
       isParentForSlots: false,
       hasOpenChildTag: false
     };
+
+    this.openTags.push(newTagInfo);
+
+    // Handle view property nesting
+    if (isViewProperty && openTagInfo?.type !== ElementType.VIEW) {
+      notifyError(`Property '${tagName}' can only be nested inside a view tag. Parent tag: ${openTagInfo?.tagName ?? 'None'}`);
+      newTagInfo.ignored = true;
+      return;
+    }
+
+    if (openTagInfo != null) {
+      if (!this.checkOpenTagNestingConditions(openTagInfo, tagName, attributes)) {
+        newTagInfo.ignored = true;
+        return;
+      }
+    }
 
     if (isViewProperty) {
       const [parentTagName, tagPropertyName] = tagName.split('.');
@@ -200,7 +204,9 @@ export class ComponentBuilder {
           newTagInfo.astInfo.body = openTagInfo.astInfo.body;
         }
       } else {
-        throw new Error(`Property '${tagName}' is not suitable for parent '${openTagInfo.tagName}'`);
+        notifyError(`Property '${tagName}' is not suitable for parent '${openTagInfo.tagName}'`);
+        newTagInfo.ignored = true;
+        return;
       }
     } else if (tagName === SpecialTags.SLOT_CONTENT) {
       if (openTagInfo != null) {
@@ -210,7 +216,9 @@ export class ComponentBuilder {
 
         openTagInfo.isParentForSlots = true;
       } else {
-        throw new Error(`Invalid tag '${tagName}'. Tag has no parent`);
+        notifyError(`Invalid tag '${tagName}'. Tag has no parent`);
+        newTagInfo.ignored = true;
+        return;
       }
     } else if (tagName === SpecialTags.TEMPLATE) {
       if (openTagInfo != null) {
@@ -238,10 +246,12 @@ export class ComponentBuilder {
           );
         } else {
           // Ignore tag if it's nested inside a single-template property
-          newTagInfo = null;
+          newTagInfo.ignored = true;
         }
       } else {
-        throw new Error('Failed to parse template. No parent found');
+        notifyError('Failed to parse template. No parent found');
+        newTagInfo.ignored = true;
+        return;
       }
     } else {
       const parentTagName: string = openTagInfo?.tagName;
@@ -363,7 +373,9 @@ export class ComponentBuilder {
             );
             newTagInfo.astInfo.indexBeforeNewViewInstance = newTagInfo.astInfo.body.length;
           } else {
-            throw new Error(`Namespace prefix '${prefix}' on '${elementName}' is not defined`);
+            notifyError(`Namespace prefix '${prefix}' on '${elementName}' is not defined`);
+            newTagInfo.ignored = true;
+            return;
           }
         } else {
           // Store tags that are actually nativescript core components
@@ -380,13 +392,17 @@ export class ComponentBuilder {
       }
     }
 
-    newTagInfo != null && this.openTags.push(newTagInfo);
+    // Update open tag information once new tag state is decided
+    if (openTagInfo != null && !newTagInfo.ignored) {
+      openTagInfo.hasOpenChildTag = true;
+      openTagInfo.nestedTagCount++;
+    }
   }
 
   public handleCloseTag(tagName: string): void {
     // Platform tags
     if (KNOWN_PLATFORMS.includes(tagName)) {
-      if (tagName.toLowerCase() !== this.options.platform) {
+      if (tagName.toLowerCase() !== this.platform) {
         this.unsupportedPlatformTagCount--;
       }
       return;
@@ -397,6 +413,12 @@ export class ComponentBuilder {
 
     let openTagInfo: TagInfo = this.openTags[this.openTags.length - 1];
     if (openTagInfo != null) {
+      if (openTagInfo.ignored) {
+        // Remove tag from the openTags collection
+        this.openTags.pop();
+        return;
+      }
+
       // Current tag is a closing tag
       if (this.isClosingTag(tagName, openTagInfo)) {
         if (openTagInfo.propertyName != null) {
@@ -467,7 +489,8 @@ export class ComponentBuilder {
           openTagInfo.astInfo.body.push(t.returnStatement(childIndex != null ? t.identifier(ELEMENT_PREFIX + childIndex) : t.nullLiteral()));
         } else {
           if (openTagInfo.isParentForSlots && openTagInfo.nestedTagCount > 1) {
-            throw new Error(`Cannot mix common views or properties with slot content inside tag '${tagName}'`);
+            notifyError(`Cannot mix common views or properties with slot content inside tag '${tagName}'`);
+            return;
           }
 
           if (tagName === SpecialTags.SLOT) {
@@ -669,45 +692,53 @@ export class ComponentBuilder {
     return fullTagName === closingTagName && !openTagInfo.hasOpenChildTag;
   }
 
-  private checkOpenTagNestingConditions(openTagInfo: TagInfo, newTagName: string, attributes): void {
+  private checkOpenTagNestingConditions(openTagInfo: TagInfo, newTagName: string, attributes): boolean {
     if (newTagName === SpecialTags.SLOT) {
       if (this.isInSlotFallbackScope) {
-        throw new Error(`Cannot declare slot '${attributes.slot || 'default'}' inside slot fallback scope`);
+        notifyError(`Cannot declare slot '${attributes.slot || 'default'}' inside slot fallback scope`);
+        return false;
       }
     }
 
     if (newTagName === SpecialTags.SLOT_CONTENT) {
       if (!openTagInfo.isCustomComponent) {
-        throw new Error(`Invalid tag '${newTagName}'. Can only nest slot content inside custom component tags`);
+        notifyError(`Invalid tag '${newTagName}'. Can only nest slot content inside custom component tags`);
+        return false;
       }
 
       if (openTagInfo.isParentForSlots) {
-        throw new Error(`Invalid tag '${newTagName}'. View already contains a slot content tag`);
+        notifyError(`Invalid tag '${newTagName}'. View already contains a slot content tag`);
+        return false;
       }
 
       if (openTagInfo.tagName === SpecialTags.SLOT) {
-        throw new Error('Cannot nest slot content inside a slot');
+        notifyError('Cannot nest slot content inside a slot');
+        return false;
       }
     }
 
     switch (openTagInfo.type) {
       case ElementType.TEMPLATE:
         if (openTagInfo.nestedTagCount) {
-          throw new Error(`Tag '${openTagInfo.tagName}' does not accept more than a single nested element`);
+          notifyError(`Tag '${openTagInfo.tagName}' does not accept more than a single nested element`);
+          return false;
         }
         break;
       case ElementType.TEMPLATE_ARRAY:
         if (newTagName !== SpecialTags.TEMPLATE) {
-          throw new Error(`Property '${openTagInfo.tagName}' must be an array of templates`);
+          notifyError(`Property '${openTagInfo.tagName}' must be an array of templates`);
+          return false;
         }
         break;
       default:
         if (newTagName === SpecialTags.TEMPLATE) {
           const fullTagName = openTagInfo.propertyName != null ? `${openTagInfo.tagName}.${openTagInfo.propertyName}` : openTagInfo.tagName;
-          throw new Error(`Template tags can only be nested inside template properties. Parent tag: ${fullTagName}`);
+          notifyError(`Template tags can only be nested inside template properties. Parent tag: ${fullTagName}`);
+          return false;
         }
         break;
     }
+    return true;
   }
 
   private handleViewProperties(treeIndex: number, tagName, properties: Array<AttributeItem>, astBody: Array<t.Expression | t.Statement>) {
@@ -764,13 +795,14 @@ export class ComponentBuilder {
 
       // Binding context should not be set in markup
       if (name === BINDING_CONTEXT_PROPERTY_NAME) {
-        throw new Error(`Cannot set binding context in markup. Tag: ${tagName}`);
+        notifyWarning(`Cannot set binding context in markup. Tag: ${tagName}`);
+        continue;
       }
 
       const [propertyName, prefix] = this.getLocalAndPrefixByName(name);
       if (prefix != null) {
         // Platform-based attributes
-        if (KNOWN_PLATFORMS.includes(prefix.toLowerCase()) && prefix.toLowerCase() !== this.options.platform.toLowerCase()) {
+        if (KNOWN_PLATFORMS.includes(prefix.toLowerCase()) && prefix.toLowerCase() !== this.platform.toLowerCase()) {
           continue;
         }
       }
@@ -778,8 +810,8 @@ export class ComponentBuilder {
       let propertyValue;
 
       // Custom attribute value formatting
-      if (this.options.attributeValueFormatter) {
-        propertyValue = this.options.attributeValueFormatter(value, propertyName, tagName, attributes) ?? '';
+      if (this.attributeValueFormatter) {
+        propertyValue = this.attributeValueFormatter(value, propertyName, tagName, attributes) ?? '';
       } else {
         propertyValue = value;
       }
@@ -939,7 +971,7 @@ export class ComponentBuilder {
 
       this.pathsToResolve.push(attrValue);
     } else {
-      codeResolvedPath = this.options.moduleRelativePath;
+      codeResolvedPath = this.moduleRelativePath;
     }
 
     // Style
@@ -949,7 +981,7 @@ export class ComponentBuilder {
 
       this.pathsToResolve.push(attrValue);
     } else {
-      styleResolvedPath = this.options.moduleRelativePath;
+      styleResolvedPath = this.moduleRelativePath;
     }
 
     return [
@@ -1187,15 +1219,16 @@ export class ComponentBuilder {
 
       // View -> view model callback (two-way) function
       if (bindingOptions.isTwoWay) {
-        this.astBindingCallbacksBody.push(
-          this.generateBindingTargetAstCallback(bindingTargetPropertyCallbackName, bindingOptions)
-        );
+        const bindingTargetAstCallback = this.generateBindingTargetAstCallback(bindingTargetPropertyCallbackName, bindingOptions);
+        if (bindingTargetAstCallback != null) {
+          this.astBindingCallbacksBody.push(bindingTargetAstCallback);
 
-        // These arguments are used for adding/removing event listeners for binding target properties
-        bindingTargetPropertyAstListenerArgs.push([
-          t.stringLiteral(`${viewPropertyDetails.name}Change`),
-          t.identifier(bindingTargetPropertyCallbackName)
-        ]);
+          // These arguments are used for adding/removing event listeners for binding target properties
+          bindingTargetPropertyAstListenerArgs.push([
+            t.stringLiteral(`${viewPropertyDetails.name}Change`),
+            t.identifier(bindingTargetPropertyCallbackName)
+          ]);
+        }
       }
     }
 
@@ -1543,7 +1576,8 @@ export class ComponentBuilder {
     let bindingExpression;
     if (bindingOptions.converterToModelAstExpression != null) {
       if (!bindingOptions.converterToModelAstExpression.expressions.length) {
-        throw new Error(`Invalid converter expression for property '${bindingOptions.viewPropertyDetails.name}': ${bindingOptions.toString()}`);
+        notifyWarning(`Invalid converter expression for property '${bindingOptions.viewPropertyDetails.name}': ${bindingOptions.toString()}`);
+        return null;
       }
       bindingExpression = bindingOptions.converterToModelAstExpression.expressions[0];
     } else {
@@ -1752,7 +1786,8 @@ export class ComponentBuilder {
 
     for (const { name, value } of namespaces) {
       if (this.activeNamespaces.has(name)) {
-        throw new Error(`Namespace prefix '${name}' is already defined`);
+        notifyWarning(`Namespace prefix '${name}' is already defined`);
+        continue;
       }
 
       const resolvedPath = this.getResolvedPath(value);

@@ -3,6 +3,7 @@ import traverse from '@babel/traverse';
 import * as t from '@babel/types';
 import { GLOBAL_UI_REF } from '../helpers';
 import { AttributeItem } from './base-builder';
+import { notifyError, notifyWarning } from '../compiler-abnormal-state';
 
 const BINDING_REGEX = /\{{(.+?)\}}/;
 const CONVERTER_EXPRESSION_SEPARATOR = '|';
@@ -62,14 +63,15 @@ export class BindingBuilder {
 
   public convertValueToBindingOptions(propertyDetails: AttributeItem): BindingOptions {
     const code = this.getBindingCode(propertyDetails.value);
-    if (!code?.length) {
-      throw new Error('Invalid binding expression. Curly brackets are empty');
+    if (code == null) {
+      return null;
     }
 
     const ast = parser.parse(code);
 
     if (ast.program.body.length !== 1 || !t.isExpressionStatement(ast.program.body[0])) {
-      throw new Error(`Invalid binding expression. Binding must be a single-line expression statement: ${propertyDetails.value}`);
+      notifyWarning(`Invalid binding expression. Binding must be a single-line expression statement: ${propertyDetails.value}`);
+      return null;
     }
 
     const expressionStatement = ast.program.body[0];
@@ -86,54 +88,73 @@ export class BindingBuilder {
         return propertyDetails.value;
       }
     };
+    let traversed = true;
 
-    traverse(expressionStatement, {
-      noScope: true,
-      // Validate AST
-      enter: (path) => {
-        this.checkIfBindingExpressionIsValid(path, bindingOptions);
-      },
-      // We apply optional chaining by default in order to get rid of binding errors when binding context is not set early enough
-      CallExpression: (path) => {
-        const node = path.node;
-        path.replaceWith(t.optionalCallExpression(
-          node.callee,
-          node.arguments,
-          true
-        ));
-      },
-      // Traverse through all identifiers and keep track of the ones that should be observed
-      Identifier: (path) => {
-        this.handleIdentifier(path, bindingOptions);
-      },
-      // We apply optional chaining by default in order to get rid of binding errors when binding context is not set early enough
-      MemberExpression: (path) => {
-        const node = path.node;
-        path.replaceWith(t.optionalMemberExpression(
-          node.object,
-          node.property,
-          node.computed,
-          true
-        ));
-      },
-      exit: (path) => {
-        const parentPath = path.parentPath;
-        if (parentPath != null) {
-          // In the case of converters, we ensure expression is a two-way binding by checking left-side reference
-          if (bindingOptions.isTwoWay && !bindingOptions.properties.length && this.isConverterExpression(parentPath.node) && path.node === parentPath.node.left) {
-            bindingOptions.isTwoWay = false;
+    try {
+      traverse(expressionStatement, {
+        noScope: true,
+        // Validate AST
+        enter: (path) => {
+          if (!this.checkIfBindingExpressionIsValid(path, bindingOptions)) {
+            path.stop();
+          }
+        },
+        // We apply optional chaining by default in order to get rid of binding errors when binding context is not set early enough
+        CallExpression: (path) => {
+          const node = path.node;
+          path.replaceWith(t.optionalCallExpression(
+            node.callee,
+            node.arguments,
+            true
+          ));
+        },
+        // Traverse through all identifiers and keep track of the ones that should be observed
+        Identifier: (path) => {
+          if (!this.handleIdentifier(path, bindingOptions)) {
+            traversed = false;
+            path.stop();
+          }
+        },
+        // We apply optional chaining by default in order to get rid of binding errors when binding context is not set early enough
+        MemberExpression: (path) => {
+          const node = path.node;
+          path.replaceWith(t.optionalMemberExpression(
+            node.object,
+            node.property,
+            node.computed,
+            true
+          ));
+        },
+        exit: (path) => {
+          const parentPath = path.parentPath;
+          if (parentPath != null) {
+            // In the case of converters, we ensure expression is a two-way binding by checking left-side reference
+            if (bindingOptions.isTwoWay && !bindingOptions.properties.length && this.isConverterExpression(parentPath.node) && path.node === parentPath.node.left) {
+              bindingOptions.isTwoWay = false;
+            }
+          }
+
+          /**
+           * Always handle converters after they get fully traversed.
+           * It helps with the order of bindable properties and builder does not append 'viewModel' caller to them.
+           */
+          if (this.isConverterExpression(path.node)) {
+            if (!this.handleConverter(path, bindingOptions)) {
+              traversed = false;
+              path.stop();
+              return;
+            }
           }
         }
+      });
+    } catch(err) {
+      notifyError(err);
+      traversed = false;
+    }
 
-        /**
-         * Always handle converters after they get fully traversed.
-         * It helps with the order of bindable properties and builder does not append 'viewModel' caller to them.
-         */
-        if (this.isConverterExpression(path.node)) {
-          this.handleConverter(path, bindingOptions);
-        }
-      }
-    });
+    if (!traversed) {
+      return null;
+    }
 
     // If property is an event listener, make sure that listener function will use view model as context
     if (bindingOptions.viewPropertyDetails.isEventListener) {
@@ -164,16 +185,17 @@ export class BindingBuilder {
     );
   }
 
-  private checkIfBindingExpressionIsValid(ast, bindingOptions: BindingOptions): void {
+  private checkIfBindingExpressionIsValid(ast, bindingOptions: BindingOptions): boolean {
     for (const validate of BINDING_AST_VALIDATORS) {
       if (validate(ast)) {
-        return;
+        return true;
       }
     }
-    throw new Error(`Invalid binding expression: ${bindingOptions.toString()}`);
+    notifyWarning(`Invalid binding expression: ${bindingOptions.toString()}`);
+    return false;
   }
 
-  private handleIdentifier(path, bindingOptions: BindingOptions): void {
+  private handleIdentifier(path, bindingOptions: BindingOptions): boolean {
     const node = path.node;
     let parentNode;
     let isBindingProperty = false;
@@ -203,6 +225,9 @@ export class BindingBuilder {
       if (SPECIAL_REFERENCES.includes(node.name)) {
         if (node.name === PARENTS_REFERENCE_NAME) {
           const parentKeyAst = this.getAstForParentKey(parentNode, bindingOptions.toString());
+          if (parentKeyAst == null) {
+            return false;
+          }
           bindingOptions.parentKeyAstExpressions.push(parentKeyAst);
         }
         bindingOptions.specialReferenceCount++;
@@ -220,15 +245,17 @@ export class BindingBuilder {
         path.skip();
       }
     }
+    return true;
   }
 
-  private handleConverter(path, bindingOptions: BindingOptions): void {
+  private handleConverter(path, bindingOptions: BindingOptions): boolean {
     const node: t.BinaryExpression = path.node;
     const isRightSideCallExpression = this.isCallExpression(node.right);
     const isRightSideExpressionValid = t.isIdentifier(node.right) || this.isMemberExpression(node.right) || isRightSideCallExpression;
     // Right-side has to be a property or function call
     if (!isRightSideExpressionValid) {
-      throw new Error(`Invalid right-side reference for converter. Expression: ${bindingOptions.toString()}`);
+      notifyWarning(`Invalid right-side reference for converter. Expression: ${bindingOptions.toString()}`);
+      return false;
     }
 
     // Keep callee and arguments from converter expression
@@ -274,6 +301,8 @@ export class BindingBuilder {
           ]
         )
       ]);
+
+      return true;
     }
 
     // Generate a function call that executes converter in runtime
@@ -302,7 +331,8 @@ export class BindingBuilder {
     let propertyExpression;
 
     if (parentNode == null || !this.isMemberExpression(parentNode)) {
-      throw new Error(`Invalid '${PARENTS_REFERENCE_NAME}' expression reference. No element name has been given to search for: ${expressionDesc}`);
+      notifyWarning(`Invalid '${PARENTS_REFERENCE_NAME}' expression reference. No element name has been given to search for: ${expressionDesc}`);
+      return null;
     }
     if (parentNode.computed) {
       propertyExpression = parentNode.property;
@@ -310,7 +340,8 @@ export class BindingBuilder {
       if (t.isIdentifier(parentNode.property)) {
         propertyExpression = t.stringLiteral(parentNode.property.name);
       } else {
-        throw new Error(`Invalid '${PARENTS_REFERENCE_NAME}' expression reference. Invalid element name: ${expressionDesc}`);
+        notifyWarning(`Invalid '${PARENTS_REFERENCE_NAME}' expression reference. Invalid element name: ${expressionDesc}`);
+        return null;
       }
     }
     return propertyExpression;
@@ -319,9 +350,17 @@ export class BindingBuilder {
   private getBindingCode(bindingValue: string): string {
     const matchResult = bindingValue.match(BINDING_REGEX);
     if (matchResult == null) {
-      throw new Error (`Cannot retrieve code content from non-binding value: ${bindingValue}`);
+      notifyWarning(`Cannot retrieve code content from non-binding value: ${bindingValue}`);
+      return null;
     }
-    return matchResult[1].trim();
+
+    const codeString = matchResult[1].trim();
+    if (!codeString.length) {
+      notifyWarning('Invalid binding expression. Curly brackets are empty');
+      return null;
+    }
+
+    return codeString;
   }
 
   private isCallExpression(ast): ast is t.CallExpression | t.OptionalCallExpression {

@@ -20,10 +20,7 @@ if (process.argv.length < 3) {
 const parameter = process.argv[process.argv.length - 1];
 const content = process.argv.includes('--inline') ? parameter : fs.readFileSync(parameter, 'utf8');
 
-const { output } = convertDocumentToAST(content, {
-  moduleRelativePath: 'views/test/test.xml',
-  platform: 'android'
-});
+const { output } = convertDocumentToAST(content, 'views/test/test.xml', 'android');
 
 if (output) {
   // eslint-disable-next-line no-console
