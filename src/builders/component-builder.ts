@@ -20,6 +20,7 @@ enum ElementType {
   VIEW,
   COMMON_PROPERTY,
   TEMPLATE,
+  KEYED_TEMPLATE,
   TEMPLATE_ARRAY
 }
 
@@ -31,6 +32,8 @@ enum SpecialTags {
 
 interface TagAstInfo {
   body: Array<t.Expression | t.Statement>;
+  properties?: Array<t.ExpressionStatement>;
+  bindingOptionData?: Array<BindingOptions>;
   /**
    * This index is useful for things like prepending slot views.
    */
@@ -74,6 +77,7 @@ export class ComponentBuilder {
    * Keep counter for the case of platform tags being inside platform tags.
    */
   private unsupportedPlatformTagCount: number = 0;
+  private platformTagNestingLevel: number = 0;
 
   private treeIndex: number = -1;
 
@@ -83,6 +87,7 @@ export class ComponentBuilder {
   private moduleAst: t.Program;
   private astBindingCallbacksBody: Array<t.Declaration> = [];
   private astConstructorBody: Array<t.Statement> = [];
+  private astCustomModuleProperties: Array<t.ObjectProperty> = [];
   private astCustomModulesRegister: Array<t.Statement> = [];
 
   constructor(moduleRelativePath: string, platform: string) {
@@ -103,7 +108,7 @@ export class ComponentBuilder {
     this.bindingBuilder = bindingBuilder;
   }
 
-  public handleOpenTag(tagName: string, attributes): void {
+  public onTagOpening(tagName: string): void {
     // Component root view and its children have already been parsed
     if (this.isComponentInitialized) {
       notifyError(`Invalid element ${tagName}. Components can only have a single root view`);
@@ -115,6 +120,7 @@ export class ComponentBuilder {
       if (tagName.toLowerCase() !== this.platform) {
         this.unsupportedPlatformTagCount++;
       }
+      this.platformTagNestingLevel++;
       return;
     }
     if (this.unsupportedPlatformTagCount > 0) {
@@ -150,7 +156,7 @@ export class ComponentBuilder {
     }
 
     if (openTagInfo != null) {
-      if (!this.checkOpenTagNestingConditions(openTagInfo, tagName, attributes)) {
+      if (!this.checkOpenTagNestingConditions(openTagInfo, tagName)) {
         newTagInfo.ignored = true;
         return;
       }
@@ -167,38 +173,9 @@ export class ComponentBuilder {
         if (tagPropertyName.endsWith(KNOWN_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE;
           newTagInfo.astInfo.body = [];
-
-          openTagInfo.astInfo.body.push(
-            t.expressionStatement(
-              t.assignmentExpression(
-                '=',
-                t.memberExpression(
-                  t.identifier(ELEMENT_PREFIX + openTagInfo.index),
-                  t.identifier(newTagInfo.propertyName)
-                ),
-                t.arrowFunctionExpression(
-                  [],
-                  t.blockStatement(<t.Statement[]>newTagInfo.astInfo.body)
-                )
-              )
-            )
-          );
         } else if (tagPropertyName.endsWith(KNOWN_MULTI_TEMPLATE_SUFFIX)) {
           newTagInfo.type = ElementType.TEMPLATE_ARRAY;
           newTagInfo.astInfo.body = [];
-          
-          openTagInfo.astInfo.body.push(
-            t.expressionStatement(
-              t.assignmentExpression(
-                '=',
-                t.memberExpression(
-                  t.identifier(ELEMENT_PREFIX + openTagInfo.index),
-                  t.identifier(newTagInfo.propertyName)
-                ),
-                t.arrayExpression(<t.Expression[]>newTagInfo.astInfo.body)
-              )
-            )
-          );
         } else {
           newTagInfo.type = ElementType.COMMON_PROPERTY;
           newTagInfo.astInfo.body = openTagInfo.astInfo.body;
@@ -223,27 +200,9 @@ export class ComponentBuilder {
     } else if (tagName === SpecialTags.TEMPLATE) {
       if (openTagInfo != null) {
         if (openTagInfo.type === ElementType.TEMPLATE_ARRAY) {
-          const attrValue = MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes ? attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE] : '';
-
           newTagInfo.index = openTagInfo.index;
-          newTagInfo.type = ElementType.TEMPLATE;
+          newTagInfo.type = ElementType.KEYED_TEMPLATE;
           newTagInfo.astInfo.body = [];
-
-          openTagInfo.astInfo.body.push(
-            t.objectExpression([
-              t.objectProperty(
-                t.identifier(MULTI_TEMPLATE_KEY_ATTRIBUTE),
-                t.stringLiteral(attrValue)
-              ),
-              t.objectProperty(
-                t.identifier('createView'),
-                t.arrowFunctionExpression(
-                  [],
-                  t.blockStatement(<t.Statement[]>newTagInfo.astInfo.body)
-                )
-              )
-            ])
-          );
         } else {
           // Ignore tag if it's nested inside a single-template property
           newTagInfo.ignored = true;
@@ -259,152 +218,283 @@ export class ComponentBuilder {
 
       !isSlotFallback && this.treeIndex++;
 
-      let parentAstBody;
-      if (openTagInfo != null) {
-        parentAstBody = openTagInfo.astInfo.body;
-
-        // We have to keep a list of child indices that are actually slots
-        if (tagName === SpecialTags.SLOT) {
-          openTagInfo.slotChildIndices.push(this.treeIndex);
-        }
-
-        if (openTagInfo.tagName === SpecialTags.SLOT_CONTENT) {
-          const slotName = attributes.slot || 'default';
-
-          if (!openTagInfo.slotMap.has(slotName)) {
-            openTagInfo.slotMap.set(slotName, [this.treeIndex]);
-          } else {
-            openTagInfo.slotMap.get(slotName).push(this.treeIndex);
-          }
-        } else {
-          openTagInfo.childIndices.push(this.treeIndex);
-        }
-      } else {
-        parentAstBody = this.astConstructorBody;
-
-        // Resolve js and css based on first element
-        this.astConstructorBody.push(...this.generateScriptAndStyleBindingAst(attributes));
-      }
-
       newTagInfo.index = this.treeIndex;
       newTagInfo.type = ElementType.VIEW;
-      newTagInfo.astInfo = {
-        body: parentAstBody,
-        indexBeforeNewViewInstance: parentAstBody.length
-      };
+      newTagInfo.astInfo.body = openTagInfo != null ? openTagInfo.astInfo.body : this.astConstructorBody;
 
       if (tagName === SpecialTags.SLOT) {
-        const name = attributes.name || 'default';
-        const slotViewsIdentifier = t.memberExpression(
-          t.memberExpression(
-            t.thisExpression(),
-            t.identifier('$slotViews')
-          ),
-          t.stringLiteral(name),
-          true
-        );
-
-        newTagInfo.astInfo.body = [
-          t.variableDeclaration(
-            'let',
-            [
-              t.variableDeclarator(
-                t.identifier('fallbackViews'),
-                t.arrayExpression()
-              )
-            ]
-          )];
-
-        // Consume slot views if any
-        parentAstBody.push(
-          t.variableDeclaration(
-            'let',
-            [
-              t.variableDeclarator(
-                t.identifier(ELEMENT_PREFIX + this.treeIndex)
-              )
-            ]
-          ),
-          t.ifStatement(
-            slotViewsIdentifier,
-            t.blockStatement([
-              t.expressionStatement(
-                t.assignmentExpression(
-                  '=',
-                  t.identifier(ELEMENT_PREFIX + this.treeIndex),
-                  slotViewsIdentifier
-                )
-              ),
-              t.expressionStatement(
-                t.unaryExpression(
-                  'delete',
-                  slotViewsIdentifier,
-                  true
-                )
-              )
-            ]),
-            t.blockStatement(<t.Statement[]>newTagInfo.astInfo.body)
-          )
-        );
-
         this.isInSlotFallbackScope = true;
       } else {
-        const [elementName, prefix] = this.getLocalAndPrefixByName(tagName);
-        // View imports and properties
-        const { namespaces, properties } = this.traverseAttributes(tagName, attributes);
-
-        // Register modules to module name resolver (before setting indexBeforeNewViewInstance)
-        newTagInfo.namespaces = this.registerNamespaces(namespaces, newTagInfo.astInfo.body);
-
-        if (prefix != null) {
-          if (this.activeNamespaces.has(prefix)) {
-            newTagInfo.isCustomComponent = true;
-
-            newTagInfo.astInfo.body.push(
-              t.variableDeclaration(
-                'let',
-                [
-                  t.variableDeclarator(
-                    t.identifier(`slotViews${this.treeIndex}`),
-                    t.objectExpression([])
-                  )
-                ]
-              )
-            );
-            newTagInfo.astInfo.indexBeforeNewViewInstance = newTagInfo.astInfo.body.length;
-          } else {
-            notifyError(`Namespace prefix '${prefix}' on '${elementName}' is not defined`);
-            newTagInfo.ignored = true;
-            return;
-          }
-        } else {
-          // Store tags that are actually nativescript core components
-          this.usedNSTags.add(tagName);
-        }
-
-        // Create view instance
-        newTagInfo.astInfo.body.push(
-          ...this.buildComponentAst(this.treeIndex, elementName, prefix, parentTagName)
-        );
-
-        // View properties and bindings
-        this.handleViewProperties(this.treeIndex, tagName, properties, newTagInfo.astInfo.body);
+        newTagInfo.astInfo.properties = [];
+        newTagInfo.astInfo.bindingOptionData = [];
+        newTagInfo.namespaces = new Set<string>();
       }
-    }
-
-    // Update open tag information once new tag state is decided
-    if (openTagInfo != null && !newTagInfo.ignored) {
-      openTagInfo.hasOpenChildTag = true;
-      openTagInfo.nestedTagCount++;
     }
   }
 
-  public handleCloseTag(tagName: string): void {
+  public onAttribute(name: string, value: string): void {
+    // Platform tags
+    if (this.platformTagNestingLevel > 0) {
+      return;
+    }
+    if (this.unsupportedPlatformTagCount > 0) {
+      return;
+    }
+
+    const openTagInfo: TagInfo = this.openTags[this.openTags.length - 1];
+    if (openTagInfo != null && !openTagInfo.ignored) {
+      if (openTagInfo.type === ElementType.VIEW) {
+        if (openTagInfo.tagName !== SpecialTags.SLOT) {
+          const attributeItem = this.getAttributeItem(name, value, openTagInfo.tagName);
+          if (attributeItem != null) {
+            // Namespace
+            if (attributeItem.prefix === 'xmlns') {
+              if (this.activeNamespaces.has(name)) {
+                notifyWarning(`Namespace prefix '${name}' is already defined`);
+              } else {
+                this.registerNamespace(attributeItem.name, attributeItem.value);
+                openTagInfo.namespaces.add(attributeItem.name);
+              }
+            } else {
+              // If property value is enclosed in curly brackets, then it's a binding expression
+              if (this.bindingBuilder != null && this.bindingBuilder.isBindingValue(attributeItem.value)) {
+                const bindingOptions: BindingOptions = this.bindingBuilder.convertValueToBindingOptions(attributeItem);
+                if (bindingOptions != null) {
+                  openTagInfo.astInfo.bindingOptionData.push(bindingOptions);
+                }
+              } else {
+                openTagInfo.astInfo.properties.push(this.getViewPropertySetterAst(attributeItem.name, (attributeItem.isEventListener ? t.memberExpression(
+                  t.identifier('moduleExports'),
+                  t.stringLiteral(attributeItem.value),
+                  true
+                ) : t.stringLiteral(attributeItem.value)), ELEMENT_PREFIX + this.treeIndex, attributeItem.isEventListener, true));
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  public onTagOpened(tagName: string, attributes): void {
     // Platform tags
     if (KNOWN_PLATFORMS.includes(tagName)) {
+      return;
+    }
+    if (this.unsupportedPlatformTagCount > 0) {
+      return;
+    }
+
+    const openTagInfo: TagInfo = this.openTags[this.openTags.length - 1];
+    if (openTagInfo != null && !openTagInfo.ignored) {
+      const parentTagInfo: TagInfo = this.openTags[this.openTags.length - 2];
+
+      if (openTagInfo.type === ElementType.TEMPLATE) {
+        parentTagInfo.astInfo.body.push(
+          t.expressionStatement(
+            t.assignmentExpression(
+              '=',
+              t.memberExpression(
+                t.identifier(ELEMENT_PREFIX + parentTagInfo.index),
+                t.identifier(openTagInfo.propertyName)
+              ),
+              t.arrowFunctionExpression(
+                [],
+                t.blockStatement(<t.Statement[]>openTagInfo.astInfo.body)
+              )
+            )
+          )
+        );
+      } else if (openTagInfo.type === ElementType.TEMPLATE_ARRAY) {
+        parentTagInfo.astInfo.body.push(
+          t.expressionStatement(
+            t.assignmentExpression(
+              '=',
+              t.memberExpression(
+                t.identifier(ELEMENT_PREFIX + parentTagInfo.index),
+                t.identifier(openTagInfo.propertyName)
+              ),
+              t.arrayExpression(<t.Expression[]>openTagInfo.astInfo.body)
+            )
+          )
+        );
+      } else if (openTagInfo.type === ElementType.KEYED_TEMPLATE) {
+        const attrValue = MULTI_TEMPLATE_KEY_ATTRIBUTE in attributes ? attributes[MULTI_TEMPLATE_KEY_ATTRIBUTE] : '';
+
+        parentTagInfo.astInfo.body.push(
+          t.objectExpression([
+            t.objectProperty(
+              t.identifier(MULTI_TEMPLATE_KEY_ATTRIBUTE),
+              t.stringLiteral(attrValue)
+            ),
+            t.objectProperty(
+              t.identifier('createView'),
+              t.arrowFunctionExpression(
+                [],
+                t.blockStatement(<t.Statement[]>openTagInfo.astInfo.body)
+              )
+            )
+          ])
+        );
+      } else if (openTagInfo.type === ElementType.VIEW) {
+        const parentTagName: string = parentTagInfo?.tagName;
+
+        if (parentTagInfo != null) {
+          // We have to keep a list of child indices that are actually slots
+          if (tagName === SpecialTags.SLOT) {
+            parentTagInfo.slotChildIndices.push(this.treeIndex);
+          }
+  
+          if (parentTagInfo.tagName === SpecialTags.SLOT_CONTENT) {
+            const slotName = attributes.slot || 'default';
+  
+            if (!parentTagInfo.slotMap.has(slotName)) {
+              parentTagInfo.slotMap.set(slotName, [this.treeIndex]);
+            } else {
+              parentTagInfo.slotMap.get(slotName).push(this.treeIndex);
+            }
+          } else {
+            parentTagInfo.childIndices.push(this.treeIndex);
+          }
+        } else {
+          // Resolve js and css based on first element
+          this.astConstructorBody.push(...this.generateScriptAndStyleBindingAst(attributes));
+        }
+
+        if (tagName === SpecialTags.SLOT) {
+          const name = attributes.name || 'default';
+          const astBody = openTagInfo.astInfo.body;
+          const slotViewsIdentifier = t.memberExpression(
+            t.memberExpression(
+              t.thisExpression(),
+              t.identifier('$slotViews')
+            ),
+            t.stringLiteral(name),
+            true
+          );
+  
+          openTagInfo.astInfo.body = [
+            t.variableDeclaration(
+              'let',
+              [
+                t.variableDeclarator(
+                  t.identifier('fallbackViews'),
+                  t.arrayExpression()
+                )
+              ]
+            )
+          ];
+  
+          // Consume slot views if any
+          astBody.push(
+            t.variableDeclaration(
+              'let',
+              [
+                t.variableDeclarator(
+                  t.identifier(ELEMENT_PREFIX + this.treeIndex)
+                )
+              ]
+            ),
+            t.ifStatement(
+              slotViewsIdentifier,
+              t.blockStatement([
+                t.expressionStatement(
+                  t.assignmentExpression(
+                    '=',
+                    t.identifier(ELEMENT_PREFIX + this.treeIndex),
+                    slotViewsIdentifier
+                  )
+                ),
+                t.expressionStatement(
+                  t.unaryExpression(
+                    'delete',
+                    slotViewsIdentifier,
+                    true
+                  )
+                )
+              ]),
+              t.blockStatement(<t.Statement[]>openTagInfo.astInfo.body)
+            )
+          );
+        } else {
+          const [elementName, prefix] = this.getLocalAndPrefixByName(tagName);
+
+          if (prefix != null) {
+            if (this.activeNamespaces.has(prefix)) {
+              openTagInfo.isCustomComponent = true;
+
+              openTagInfo.astInfo.body.push(
+                t.variableDeclaration(
+                  'let',
+                  [
+                    t.variableDeclarator(
+                      t.identifier(`slotViews${this.treeIndex}`),
+                      t.objectExpression([])
+                    )
+                  ]
+                )
+              );
+            } else {
+              notifyError(`Namespace prefix '${prefix}' on '${elementName}' is not defined`);
+              openTagInfo.ignored = true;
+              return;
+            }
+          } else {
+            // Store tags that are actually nativescript core components
+            this.usedNSTags.add(tagName);
+          }
+
+          openTagInfo.astInfo.indexBeforeNewViewInstance = openTagInfo.astInfo.body.length;
+  
+          // Create view instance
+          openTagInfo.astInfo.body.push(
+            ...this.buildComponentAst(this.treeIndex, elementName, prefix, parentTagName)
+          );
+
+          if (openTagInfo.astInfo.properties?.length) {
+            openTagInfo.astInfo.body.push(
+              ...openTagInfo.astInfo.properties
+            );
+          }
+
+          // Check if view has property bindings
+          if (openTagInfo.astInfo.bindingOptionData?.length) {
+            // Add listener for tracking binding context changes
+            openTagInfo.astInfo.body.push(
+              t.expressionStatement(
+                t.callExpression(
+                  t.memberExpression(
+                    t.identifier(ELEMENT_PREFIX + this.treeIndex),
+                    t.identifier('on')
+                  ), [
+                    t.stringLiteral('bindingContextChange'),
+                    t.identifier(`_on_${ELEMENT_PREFIX + this.treeIndex}BindingContextChange`)
+                  ]
+                )
+              )
+            );
+
+            // Generate functions for listening to binding changes
+            this.generateBindingCallbackDeclarations(this.treeIndex, openTagInfo.astInfo.bindingOptionData);
+          }
+        }
+      }
+
+      // Update open tag information once new tag state is decided
+      if (parentTagInfo != null && !openTagInfo.ignored) {
+        parentTagInfo.hasOpenChildTag = true;
+        parentTagInfo.nestedTagCount++;
+      }
+    }
+  }
+
+  public onTagClosing(tagName: string): void {
+    // Platform tags
+    if (this.platformTagNestingLevel > 0) {
       if (tagName.toLowerCase() !== this.platform) {
         this.unsupportedPlatformTagCount--;
       }
+      this.platformTagNestingLevel--;
       return;
     }
     if (this.unsupportedPlatformTagCount > 0) {
@@ -573,7 +663,7 @@ export class ComponentBuilder {
       t.variableDeclaration('let', [
         t.variableDeclarator(
           t.identifier('customModules'),
-          t.objectExpression([])
+          t.objectExpression(this.astCustomModuleProperties)
         )
       ])
     );
@@ -692,10 +782,10 @@ export class ComponentBuilder {
     return fullTagName === closingTagName && !openTagInfo.hasOpenChildTag;
   }
 
-  private checkOpenTagNestingConditions(openTagInfo: TagInfo, newTagName: string, attributes): boolean {
+  private checkOpenTagNestingConditions(openTagInfo: TagInfo, newTagName: string): boolean {
     if (newTagName === SpecialTags.SLOT) {
       if (this.isInSlotFallbackScope) {
-        notifyError(`Cannot declare slot '${attributes.slot || 'default'}' inside slot fallback scope`);
+        notifyError('Cannot declare slot inside slot fallback scope');
         return false;
       }
     }
@@ -719,7 +809,8 @@ export class ComponentBuilder {
 
     switch (openTagInfo.type) {
       case ElementType.TEMPLATE:
-        if (openTagInfo.nestedTagCount) {
+      case ElementType.KEYED_TEMPLATE:
+        if (openTagInfo.nestedTagCount > 1) {
           notifyError(`Tag '${openTagInfo.tagName}' does not accept more than a single nested element`);
           return false;
         }
@@ -780,6 +871,45 @@ export class ComponentBuilder {
       // Generate functions for listening to binding changes
       this.generateBindingCallbackDeclarations(this.treeIndex, bindingOptionData);
     }
+  }
+
+  private getAttributeItem(name: string, value: string, tagName: string): AttributeItem {
+    // Ignore special attributes
+    if (name === 'slot' || name === 'xmlns' || name === CSS_FILE || name === CODE_FILE) {
+      return null;
+    }
+
+    // Binding context should not be set in markup
+    if (name === BINDING_CONTEXT_PROPERTY_NAME) {
+      notifyWarning('Cannot set binding context in markup');
+      return null;
+    }
+
+    const [propertyName, prefix] = this.getLocalAndPrefixByName(name);
+    
+    if (prefix != null) {
+      // Platform-based attributes
+      if (KNOWN_PLATFORMS.includes(prefix.toLowerCase()) && prefix.toLowerCase() !== this.platform.toLowerCase()) {
+        return null;
+      }
+    }
+
+    let propertyValue: string;
+
+    // Custom attribute value formatting
+    if (this.attributeValueFormatter) {
+      propertyValue = this.attributeValueFormatter(value, propertyName, tagName) ?? '';
+    } else {
+      propertyValue = value;
+    }
+
+    return {
+      prefix,
+      name: propertyName,
+      value: propertyValue,
+      isEventListener: prefix === EVENT_PREFIX,
+      isSubProperty: prefix !== 'xmlns' && propertyName.includes('.')
+    };
   }
 
   private traverseAttributes(tagName: string, attributes): { namespaces: Array<AttributeItem>; properties: Array<AttributeItem> } {
@@ -1777,84 +1907,61 @@ export class ComponentBuilder {
     );
   }
 
-  private registerNamespaces(namespaces: Array<AttributeItem>, astBody: Array<t.Expression | t.Statement>): Set<string> {
-    if (!namespaces.length) {
-      return null;
-    }
-    
-    const names = new Set<string>();
+  private registerNamespace(name: string, value: string): void {
+    this.activeNamespaces.add(name);
 
-    for (const { name, value } of namespaces) {
-      if (this.activeNamespaces.has(name)) {
-        notifyWarning(`Namespace prefix '${name}' is already defined`);
-        continue;
-      }
+    const resolvedPath = this.getResolvedPath(value);
+    const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
 
-      const resolvedPath = this.getResolvedPath(value);
-      const ext = resolvedPath.endsWith('.xml') ? 'xml' : '';
+    /**
+     * By default, virtual-entry-javascript registers all application js, xml, and css files as modules.
+     * Registering namespaces will ensure node modules are also included in module register.
+     * However, we have to ensure that the resolved path of files is used as module key so that module-name-resolver works properly.
+     */
+    this.pathsToResolve.push(value);
 
-      names.add(name);
-      this.activeNamespaces.add(name);
+    // Register module using resolve path as key and overwrite old registration if any
+    this.astCustomModulesRegister.push(
+      t.expressionStatement(
+        t.callExpression(
+          t.memberExpression(
+            t.identifier('global'),
+            t.identifier('registerModule')
+          ),
+          [
+            t.stringLiteral(resolvedPath),
+            t.arrowFunctionExpression(
+              [],
+              t.callExpression(
+                t.identifier('require'),
+                [
+                  t.stringLiteral(value)
+                ]
+              )
+            )
+          ]
+        )
+      )
+    );
 
-      /**
-       * By default, virtual-entry-javascript registers all application js, xml, and css files as modules.
-       * Registering namespaces will ensure node modules are also included in module register.
-       * However, we have to ensure that the resolved path of files is used as module key so that module-name-resolver works properly.
-       */
-      this.pathsToResolve.push(value);
-
-      // Register module using resolve path as key and overwrite old registration if any
-      this.astCustomModulesRegister.push(
-        t.expressionStatement(
-          t.callExpression(
+    this.astCustomModuleProperties.push(
+      t.objectProperty(
+        t.stringLiteral(name),
+        t.callExpression(
+          t.memberExpression(
             t.memberExpression(
               t.identifier('global'),
-              t.identifier('registerModule')
+              t.identifier(GLOBAL_UI_REF)
             ),
-            [
-              t.stringLiteral(resolvedPath),
-              t.arrowFunctionExpression(
-                [],
-                t.callExpression(
-                  t.identifier('require'),
-                  [
-                    t.stringLiteral(value)
-                  ]
-                )
-              )
-            ]
-          )
+            t.identifier('loadCustomModule')
+          ),
+          [
+            t.stringLiteral(resolvedPath),
+            t.stringLiteral(ext)
+          ]
         )
-      );
-
-      astBody.push(
-        t.expressionStatement(
-          t.assignmentExpression(
-            '=',
-            t.memberExpression(
-              t.identifier('customModules'),
-              t.stringLiteral(name),
-              true
-            ),
-            t.callExpression(
-              t.memberExpression(
-                t.memberExpression(
-                  t.identifier('global'),
-                  t.identifier(GLOBAL_UI_REF)
-                ),
-                t.identifier('loadCustomModule')
-              ),
-              [
-                t.stringLiteral(resolvedPath),
-                t.stringLiteral(ext)
-              ]
-            )
-          )
-        )
-      );
-    }
-
-    return names;
+      )
+    );
   }
 
   private getLocalAndPrefixByName(name: string): string[] {
