@@ -67,7 +67,13 @@ export class BindingBuilder {
       return null;
     }
 
-    const ast = parser.parse(code);
+    let ast;
+    try {
+      ast = parser.parse(code);
+    } catch(err) {
+      notifyError(err.message);
+      return null;
+    }
 
     if (ast.program.body.length !== 1 || !t.isExpressionStatement(ast.program.body[0])) {
       notifyWarning(`Invalid binding expression. Binding must be a single-line expression statement: ${propertyDetails.value}`);
@@ -90,67 +96,62 @@ export class BindingBuilder {
     };
     let traversed = true;
 
-    try {
-      traverse(expressionStatement, {
-        noScope: true,
-        // Validate AST
-        enter: (path) => {
-          if (!this.checkIfBindingExpressionIsValid(path, bindingOptions)) {
-            path.stop();
-          }
-        },
-        // We apply optional chaining by default in order to get rid of binding errors when binding context is not set early enough
-        CallExpression: (path) => {
-          const node = path.node;
-          path.replaceWith(t.optionalCallExpression(
-            node.callee,
-            node.arguments,
-            true
-          ));
-        },
-        // Traverse through all identifiers and keep track of the ones that should be observed
-        Identifier: (path) => {
-          if (!this.handleIdentifier(path, bindingOptions)) {
-            traversed = false;
-            path.stop();
-          }
-        },
-        // We apply optional chaining by default in order to get rid of binding errors when binding context is not set early enough
-        MemberExpression: (path) => {
-          const node = path.node;
-          path.replaceWith(t.optionalMemberExpression(
-            node.object,
-            node.property,
-            node.computed,
-            true
-          ));
-        },
-        exit: (path) => {
-          const parentPath = path.parentPath;
-          if (parentPath != null) {
-            // In the case of converters, we ensure expression is a two-way binding by checking left-side reference
-            if (bindingOptions.isTwoWay && !bindingOptions.properties.length && this.isConverterExpression(parentPath.node) && path.node === parentPath.node.left) {
-              bindingOptions.isTwoWay = false;
-            }
-          }
-
-          /**
-           * Always handle converters after they get fully traversed.
-           * It helps with the order of bindable properties and builder does not append 'viewModel' caller to them.
-           */
-          if (this.isConverterExpression(path.node)) {
-            if (!this.handleConverter(path, bindingOptions)) {
-              traversed = false;
-              path.stop();
-              return;
-            }
+    traverse(expressionStatement, {
+      noScope: true,
+      // Validate AST
+      enter: (path) => {
+        if (!this.checkIfBindingExpressionIsValid(path, bindingOptions)) {
+          path.stop();
+        }
+      },
+      // We apply optional chaining by default in order to get rid of binding errors when binding context is not set early enough
+      CallExpression: (path) => {
+        const node = path.node;
+        path.replaceWith(t.optionalCallExpression(
+          node.callee,
+          node.arguments,
+          true
+        ));
+      },
+      // Traverse through all identifiers and keep track of the ones that should be observed
+      Identifier: (path) => {
+        if (!this.handleIdentifier(path, bindingOptions)) {
+          traversed = false;
+          path.stop();
+        }
+      },
+      // We apply optional chaining by default in order to get rid of binding errors when binding context is not set early enough
+      MemberExpression: (path) => {
+        const node = path.node;
+        path.replaceWith(t.optionalMemberExpression(
+          node.object,
+          node.property,
+          node.computed,
+          true
+        ));
+      },
+      exit: (path) => {
+        const parentPath = path.parentPath;
+        if (parentPath != null) {
+          // In the case of converters, we ensure expression is a two-way binding by checking left-side reference
+          if (bindingOptions.isTwoWay && !bindingOptions.properties.length && this.isConverterExpression(parentPath.node) && path.node === parentPath.node.left) {
+            bindingOptions.isTwoWay = false;
           }
         }
-      });
-    } catch(err) {
-      notifyError(err);
-      traversed = false;
-    }
+
+        /**
+         * Always handle converters after they get fully traversed.
+         * It helps with the order of bindable properties and builder does not append 'viewModel' caller to them.
+         */
+        if (this.isConverterExpression(path.node)) {
+          if (!this.handleConverter(path, bindingOptions)) {
+            traversed = false;
+            path.stop();
+            return;
+          }
+        }
+      }
+    });
 
     if (!traversed) {
       return null;

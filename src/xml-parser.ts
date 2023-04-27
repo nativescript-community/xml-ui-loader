@@ -22,7 +22,7 @@ function getAstForRawXML(content: string): t.Program {
   ], [], 'module');
 }
 
-export function convertDocumentToAST(content: string, moduleRelativePath: string, platform: string, useDataBinding?: boolean, attributeValueFormatter?: AttributeValueFormatter): { output: t.Program; pathsToResolve: Array<string> } {
+export function convertDocumentToAST(content: string, moduleRelativePath: string, platform: string, useDataBinding: boolean = true, attributeValueFormatter?: AttributeValueFormatter): { output: t.Program; pathsToResolve: Array<string> } {
   const componentBuilder = new ComponentBuilder(moduleRelativePath, platform);
   let compilationResult;
   let needsCompilation = true;
@@ -35,8 +35,14 @@ export function convertDocumentToAST(content: string, moduleRelativePath: string
   }
 
   const xmlParser = new Parser({
+    onopentagname(tagName) {
+      componentBuilder.onTagOpening(tagName);
+    },
+    onattribute(name, value) {
+      componentBuilder.onAttribute(name, value);
+    },
     onopentag(tagName, attributes) {
-      componentBuilder.handleOpenTag(tagName, attributes);
+      componentBuilder.onTagOpened(tagName, attributes);
     },
     onprocessinginstruction(name) {
       if (name == '?xml') {
@@ -45,7 +51,7 @@ export function convertDocumentToAST(content: string, moduleRelativePath: string
       }
     },
     onclosetag(tagName) {
-      componentBuilder.handleCloseTag(tagName);
+      componentBuilder.onTagClosing(tagName);
     },
     onerror(err) {
       throw err;

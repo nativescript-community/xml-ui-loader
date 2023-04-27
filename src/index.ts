@@ -1,5 +1,6 @@
 import { codeFrameColumns } from '@babel/code-frame';
 import generate from '@babel/generator';
+import { highlight } from 'cli-highlight';
 import { relative } from 'path';
 import { promisify } from 'util';
 import { LoaderOptions } from './helpers';
@@ -40,11 +41,12 @@ function getCodeFrame(content: string, msg: string, range: Position[]) {
     end: range[1]
   };
   const codeFrame = codeFrameColumns(content, location, {
-    highlightCode: true,
     message: msg
   });
 
-  return '\n' + codeFrame;
+  return '\n' + highlight(codeFrame, {
+    language: 'xml'
+  });
 }
 
 async function loadContent(loader, content, options: LoaderOptions): Promise<string> {
