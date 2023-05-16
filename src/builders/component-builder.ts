@@ -461,16 +461,25 @@ export class ComponentBuilder {
           if (openTagInfo.astInfo.bindingOptionData?.length) {
             // Add listener for tracking binding context changes
             openTagInfo.astInfo.body.push(
-              t.expressionStatement(
-                t.callExpression(
-                  t.memberExpression(
-                    t.identifier(ELEMENT_PREFIX + this.treeIndex),
-                    t.identifier('on')
-                  ), [
-                    t.stringLiteral('bindingContextChange'),
-                    t.identifier(`_on_${ELEMENT_PREFIX + this.treeIndex}BindingContextChange`)
-                  ]
-                )
+              t.ifStatement(
+                t.binaryExpression(
+                  'instanceof',
+                  t.identifier(ELEMENT_PREFIX + this.treeIndex),
+                  t.identifier('ViewBase')
+                ),
+                t.blockStatement([
+                  t.expressionStatement(
+                    t.callExpression(
+                      t.memberExpression(
+                        t.identifier(ELEMENT_PREFIX + this.treeIndex),
+                        t.identifier('on')
+                      ), [
+                        t.stringLiteral('bindingContextChange'),
+                        t.identifier(`_on_${ELEMENT_PREFIX + this.treeIndex}BindingContextChange`)
+                      ]
+                    )
+                  )
+                ])
               )
             );
 
@@ -704,7 +713,13 @@ export class ComponentBuilder {
               t.identifier('unsetValue'),
               false,
               true
-            )
+            ),
+            t.objectProperty(
+              t.identifier('ViewBase'),
+              t.identifier('ViewBase'),
+              false,
+              true
+            ),
           ])),
           t.callExpression(
             t.identifier('require'), [
